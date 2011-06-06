@@ -27,6 +27,7 @@
 #include "osdep.h"
 #include "sysemu.h"
 #include "block_int.h"
+#include "sha1.h"
 #include <stdio.h>
 
 #ifdef _WIN32

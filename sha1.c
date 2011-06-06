@@ -24,27 +24,9 @@ A million repetitions of "a"
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
-
-/* ================ sha1.h ================ */
-/*
-SHA-1 in C
-By Steve Reid <steve@edmweb.com>
-100% Public Domain
-*/
-
-typedef struct {
-    uint32_t state[5];
-    uint32_t count[2];
-    unsigned char buffer[64];
-} SHA1_CTX;
-
-void SHA1Transform(uint32_t state[5], const unsigned char buffer[64]);
-void SHA1Init(SHA1_CTX* context);
-void SHA1Update(SHA1_CTX* context, const unsigned char* data, uint32_t len);
-void SHA1Final(unsigned char digest[20], SHA1_CTX* context);
-int compsha1(unsigned char *buf1, unsigned char *buf2, int buf_size);
-/* ================ end of sha1.h ================ */
 #include <endian.h>
+
+#include "sha1.h"
 
 #define rol(value, bits) (((value) << (bits)) | ((value) >> (32 - (bits))))
 
@@ -221,32 +203,32 @@ int compsha1(unsigned char *buf1, unsigned char *buf2, int buf_size)
     SHA1_CTX ctx1, ctx2;
     unsigned char hash1[20], hash2[20];
     int i;
-	int ret;
+    int ret;
+    
+    SHA1Init(&ctx1);
+    SHA1Update(&ctx1, buf1, buf_size);
+    SHA1Final(hash1, &ctx1);
+    
+    SHA1Init(&ctx2);
+    SHA1Update(&ctx2, buf2, buf_size);
+    SHA1Final(hash2, &ctx2);	
 
-	SHA1Init(&ctx1);
-	SHA1Update(&ctx1, buf1, buf_size);
-	SHA1Final(hash1, &ctx1);
+    if ((ret = memcmp(hash1, hash2, 20)) == 0){ 
+        //		printf("match\n");
+    } else {
+        printf("difference -- ");
+        printf("SHA1[1]=");
+        for(i=0;i<20;i++)
+            printf("%02x", hash1[i]);
 
-	SHA1Init(&ctx2);
-	SHA1Update(&ctx2, buf2, buf_size);
-	SHA1Final(hash2, &ctx2);	
-
-	if ((ret = memcmp(hash1, hash2, 20)) == 0){ 
-//		printf("match\n");
-	} else {
-		printf("difference -- ");
-		printf("SHA1[1]=");
-		for(i=0;i<20;i++)
-			printf("%02x", hash1[i]);
-
-		printf("  SHA1[2]=");
-		for(i=0;i<20;i++)
-			printf("%02x", hash2[i]);
+        printf("  SHA1[2]=");
+        for(i=0;i<20;i++)
+            printf("%02x", hash2[i]);
 		
-		printf("\n");
-	}
+        printf("\n");
+    }
 
-	return ret;
+    return ret;
 }
 
 #define BUFSIZE 4096

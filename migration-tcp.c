@@ -33,6 +33,11 @@ static int socket_errno(FdMigrationState *s)
 {
     return socket_error();
 }
+/* kazushi addition */
+static int socket_read(FdMigrationState *s, void * buf, size_t size)
+{
+    return recv(s->fd, buf, size, 0);
+}
 
 static int socket_write(FdMigrationState *s, const void * buf, size_t size)
 {
@@ -94,6 +99,7 @@ MigrationState *tcp_start_outgoing_migration(Monitor *mon,
 
     s->get_error = socket_errno;
     s->write = socket_write;
+    s->read  = socket_read;
     s->close = tcp_close;
     s->mig_state.cancel = migrate_fd_cancel;
     s->mig_state.get_status = migrate_fd_get_status;
