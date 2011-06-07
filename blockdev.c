@@ -563,7 +563,7 @@ err:
     qemu_free(dinfo);
     return NULL;
 }
-
+/* kazushi cheched */
 void do_commit(Monitor *mon, const QDict *qdict)
 {
     const char *device = qdict_get_str(qdict, "device");
