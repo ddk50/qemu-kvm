@@ -315,34 +315,6 @@ void migrate_fd_put_notify(void *opaque)
     qemu_file_put_notify(s->file);
 }
 
-/* kazushi */
-ssize_t migrate_fd_get_buffer(void *opaque, void *data, size_t size)
-{
-    FdMigrationState *s = opaque;
-    ssize_t ret;    
-    
-    do {
-        /* migration-tcp: socket_read will be called */
-        ret = s->read(s, data, size);
-    } while (ret == -1 && ((s->get_error(s))) == EINTR);
-
-    if (ret == -1)
-        ret = -(s->get_error(s));
-
-    if (ret == -EAGAIN) {
-        printf("EAGAIN: %s\n", __FUNCTION__);
-    } else if (ret < 0) {
-        if (s->mon) {
-            monitor_resume(s->mon);
-        }
-        s->state = MIG_STATE_ERROR;
-        notifier_list_notify(&migration_state_notifiers);
-    }
-
-    /* kazushi TODO */
-    return ret;
-}
-
 ssize_t migrate_fd_put_buffer(void *opaque, const void *data, size_t size)
 {
     FdMigrationState *s = opaque;
@@ -374,7 +346,6 @@ void migrate_fd_connect(FdMigrationState *s)
 
     s->file = qemu_fopen_ops_buffered(s,
                                       s->bandwidth_limit,
-                                      migrate_fd_get_buffer,
                                       migrate_fd_put_buffer,
                                       migrate_fd_put_ready,
                                       migrate_fd_wait_for_unfreeze,

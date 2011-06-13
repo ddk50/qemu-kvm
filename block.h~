@@ -45,7 +45,7 @@ typedef enum {
     BLOCK_ERR_REPORT, BLOCK_ERR_IGNORE, BLOCK_ERR_STOP_ENOSPC,
     BLOCK_ERR_STOP_ANY
 } BlockErrorAction;
-
+n
 typedef enum {
     BDRV_ACTION_REPORT, BDRV_ACTION_IGNORE, BDRV_ACTION_STOP
 } BlockMonEventAction;

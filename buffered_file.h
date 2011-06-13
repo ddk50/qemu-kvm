@@ -16,14 +16,12 @@
 
 #include "hw/hw.h"
 
-typedef ssize_t (BufferedGetFunc)(void *opaque, void *data, size_t size);
 typedef ssize_t (BufferedPutFunc)(void *opaque, const void *data, size_t size);
 typedef void (BufferedPutReadyFunc)(void *opaque);
 typedef void (BufferedWaitForUnfreezeFunc)(void *opaque);
 typedef int (BufferedCloseFunc)(void *opaque);
 
 QEMUFile *qemu_fopen_ops_buffered(void *opaque, size_t xfer_limit,
-				  BufferedGetFunc *get_buffer,
                                   BufferedPutFunc *put_buffer,
                                   BufferedPutReadyFunc *put_ready,
                                   BufferedWaitForUnfreezeFunc *wait_for_unfreeze,

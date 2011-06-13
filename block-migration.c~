@@ -30,7 +30,7 @@
 
 #define MAX_IS_ALLOCATED_SEARCH 65536
 
-//#define DEBUG_BLK_MIGRATION
+#define DEBUG_BLK_MIGRATION
 
 #ifdef DEBUG_BLK_MIGRATION
 #define DPRINTF(fmt, ...) \
@@ -689,8 +689,8 @@ static int block_load(QEMUFile *f, void *opaque, int version_id)
             buf = qemu_malloc(BLOCK_SIZE);
 
             qemu_get_buffer(f, buf, BLOCK_SIZE);
-	    //	    printf("----bs: 0x%x, addr: 0x%x, nr_sectors: %d----\n",
-	    //		   bs, addr, nr_sectors); 
+	    printf("----bs: 0x%x, addr: 0x%x, nr_sectors: %d----\n",
+		   bs, addr, nr_sectors); 
             ret = bdrv_write(bs, addr, buf, nr_sectors);
 
             qemu_free(buf);

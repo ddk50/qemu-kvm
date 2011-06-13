@@ -62,8 +62,7 @@ pc-bios/optionrom/extboot.bin
 pc-bios/optionrom/vapic.bin
 .stgit-*
 cscope.*
-\#*#
-\#*.*#
+#*#
 .*.rej
 *.rej
 .*~

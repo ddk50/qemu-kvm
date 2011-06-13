@@ -70,9 +70,6 @@ static BlockDriverState *bs_snapshots;
 /* If non-zero, use only whitelisted block drivers */
 static int use_bdrv_whitelist;
 
-/* kazushi addition */
-static int enable_sha1 = 0;
-
 #ifdef _WIN32
 static int is_windows_drive_prefix(const char *filename)
 {
@@ -934,7 +931,7 @@ int bdrv_read(BlockDriverState *bs, int64_t sector_num,
 
     return drv->bdrv_read(bs, sector_num, buf, nb_sectors);
 }
-/* kazushi check */
+
 static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
                              int nb_sectors, int dirty)
 {
@@ -972,7 +969,6 @@ static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
 int bdrv_write(BlockDriverState *bs, int64_t sector_num,
                const uint8_t *buf, int nb_sectors)
 {
-    
     BlockDriver *drv = bs->drv;
     if (!bs->drv)
         return -ENOMEDIUM;
@@ -983,27 +979,6 @@ int bdrv_write(BlockDriverState *bs, int64_t sector_num,
 
     if (bs->dirty_bitmap) {
         set_dirty_bitmap(bs, sector_num, nb_sectors, 1);
-    }
-
-    if (bs->block_sha1) {
-        uint64_t norm_sector = sector_num / (int64_t)BDRV_SECTORS_PER_DIRTY_CHUNK;
-        uint8_t *buf = NULL;
-        sha1_digest sha1;
-        SHA1_CTX ctx;
-        int ret;
-
-        buf = qemu_mallocz(BLOCK_SIZE);
-
-        ret = bdrv_read(bs, sector_num, buf, BLOCK_SIZE >> BDRV_SECTOR_BITS);
-        assert(ret > 0);
-
-        SHA1Init(&ctx);
-        SHA1Update(&ctx, buf, BLOCK_SIZE);
-        SHA1Final(sha1.digest, &ctx);
-
-        bdrv_set_sha1hash(bs, &sha1, norm_sector);
-        
-        qemu_free(buf);
     }
 
     if (bs->wr_highest_sector < sector_num + nb_sectors - 1) {
@@ -1811,27 +1786,6 @@ int bdrv_write_compressed(BlockDriverState *bs, int64_t sector_num,
         set_dirty_bitmap(bs, sector_num, nb_sectors, 1);
     }
 
-    if (bs->block_sha1) {
-        uint64_t norm_sector = sector_num / (int64_t)BDRV_SECTORS_PER_DIRTY_CHUNK;
-        SHA1_CTX ctx;
-        uint8_t *buf = NULL;
-        sha1_digest sha1;
-        int ret;
-
-        buf = qemu_mallocz(BLOCK_SIZE);
-
-        ret = bdrv_read(bs, sector_num, buf, BLOCK_SIZE >> BDRV_SECTOR_BITS);
-        assert(ret > 0);
-
-        SHA1Init(&ctx);
-        SHA1Update(&ctx, buf, BLOCK_SIZE);
-        SHA1Final(sha1.digest, &ctx);
-
-        bdrv_set_sha1hash(bs, &sha1, norm_sector);
-        
-        qemu_free(buf);
-    }
-
     return drv->bdrv_write_compressed(bs, sector_num, buf, nb_sectors);
 }
 
@@ -2125,28 +2079,6 @@ static void block_complete_cb(void *opaque, int ret)
     if (b->bs->dirty_bitmap) {
         set_dirty_bitmap(b->bs, b->sector_num, b->nb_sectors, 1);
     }
-
-    if (b->bs->block_sha1) {
-        uint64_t norm_sector = b->sector_num / (int64_t)BDRV_SECTORS_PER_DIRTY_CHUNK;
-        SHA1_CTX ctx;
-        uint8_t *buf = NULL;
-        sha1_digest sha1;
-        int ret;
-
-        buf = qemu_mallocz(BLOCK_SIZE);
-
-        ret = bdrv_read(b->bs, b->sector_num, buf, BLOCK_SIZE >> BDRV_SECTOR_BITS);
-        assert(ret > 0);
-
-        SHA1Init(&ctx);
-        SHA1Update(&ctx, buf, BLOCK_SIZE);
-        SHA1Final(sha1.digest, &ctx);
-
-        bdrv_set_sha1hash(b->bs, &sha1, norm_sector);
-        
-        qemu_free(buf);
-    }
-
     b->cb(b->opaque, ret);
     qemu_free(b);
 }
@@ -2185,7 +2117,7 @@ BlockDriverAIOCB *bdrv_aio_writev(BlockDriverState *bs, int64_t sector_num,
     if (bdrv_check_request(bs, sector_num, nb_sectors))
         return NULL;
 
-    if (bs->dirty_bitmap || bs->block_sha1) {
+    if (bs->dirty_bitmap) {
         blk_cb_data = blk_dirty_cb_alloc(bs, sector_num, nb_sectors, cb,
                                          opaque);
         cb = &block_complete_cb;
@@ -2802,7 +2734,6 @@ void *qemu_blockalign(BlockDriverState *bs, size_t size)
 void bdrv_set_dirty_tracking(BlockDriverState *bs, int enable)
 {
     int64_t bitmap_size;
-    int64_t sha1map_size;   
 
     bs->dirty_count = 0;
     if (enable) {
@@ -2813,19 +2744,10 @@ void bdrv_set_dirty_tracking(BlockDriverState *bs, int enable)
 
             bs->dirty_bitmap = qemu_mallocz(bitmap_size);
         }
-        if (!bs->block_sha1 && enable_sha1) {
-            sha1map_size = ((bdrv_getlength(bs) >> BDRV_SECTOR_BITS) / 
-                            (BDRV_SECTORS_PER_DIRTY_CHUNK * 8)) * sizeof(sha1_digest);
-            bs->block_sha1 = qemu_mallocz(sha1map_size);
-        }
     } else {
         if (bs->dirty_bitmap) {
             qemu_free(bs->dirty_bitmap);
             bs->dirty_bitmap = NULL;
-        }
-        if (bs->block_sha1) {
-            qemu_free(bs->block_sha1);
-            bs->block_sha1 = NULL;
         }
     }
 }
@@ -2852,33 +2774,6 @@ void bdrv_reset_dirty(BlockDriverState *bs, int64_t cur_sector,
 int64_t bdrv_get_dirty_count(BlockDriverState *bs)
 {
     return bs->dirty_count;
-}
-
-sha1_digest* bdrv_get_sha1hash(BlockDriverState *bs, int64_t sector)
-{    
-    if (bs->block_sha1) {
-        uint64_t chunk = sector / (int64_t)BDRV_SECTORS_PER_DIRTY_CHUNK;
-        return &bs->block_sha1[chunk];
-    }
-    return NULL;
-}
-
-void bdrv_set_sha1hash(BlockDriverState *bs, sha1_digest *sha1, int64_t sector)
-{
-    if (bs->block_sha1) {
-        uint64_t chunk = sector / (int64_t)BDRV_SECTORS_PER_DIRTY_CHUNK;
-        sha1_digest *p = &bs->block_sha1[chunk];
-        memcpy(p->digest, sha1->digest, sizeof(sha1->digest));
-    }
-}
-
-void bdrv_reset_sha1hash(BlockDriverState *bs, int64_t sector)
-{
-    if (bs->block_sha1) {
-        uint64_t chunk = sector / (int64_t)BDRV_SECTORS_PER_DIRTY_CHUNK;
-        sha1_digest *p = &bs->block_sha1[chunk];
-        memset(p, 0, sizeof(sha1_digest));
-    }
 }
 
 void bdrv_set_in_use(BlockDriverState *bs, int in_use)

@@ -1499,12 +1499,10 @@ out:
 static int img_compare(int argc, char **argv)
 {  
 
-#define  BLOCK_SIZE  (32 * 1024)
-//#define  BLOCK_SIZE  512
+#define  BLOCK_SIZE  (16 * 1024)
 	BlockDriverState *bs1, *bs2;
-	char *format = argv[1];
-	char *fname1 = argv[2];
-	char *fname2 = argv[3];
+	char *fname1 = argv[1];
+	char *fname2 = argv[2];
 	uint8_t *block1, *block2;
 
 	if (BLOCK_SIZE % BDRV_SECTOR_SIZE) {
@@ -1519,16 +1517,16 @@ static int img_compare(int argc, char **argv)
 	
 	printf("comparing %s and %s...\n", fname1, fname2);
 
-	bs1 = bdrv_new_open(fname1, format, BDRV_O_FLAGS);
-	bs2 = bdrv_new_open(fname2, format, BDRV_O_FLAGS);
+	bs1 = bdrv_new_open(fname1, "raw", BDRV_O_FLAGS);
+	bs2 = bdrv_new_open(fname2, "raw", BDRV_O_FLAGS);
 	
 	if (!bs1 || !bs2) {
 		printf("disk open error\n");
 		return 1;
 	}
 
-	uint64_t disk1size = bdrv_getlength(bs1) / BDRV_SECTOR_SIZE;
-	uint64_t disk2size = bdrv_getlength(bs2) / BDRV_SECTOR_SIZE;
+	uint64_t disk1size = bdrv_getlength(bs1);
+	uint64_t disk2size = bdrv_getlength(bs2);
 
 	printf("disk1: %lf [GBytes]\ndisk2: %lf [Gbytes]\n", 
 		   bdrv_getlength(bs1) / 1024 / 1024 / 1024.0,
@@ -1537,35 +1535,31 @@ static int img_compare(int argc, char **argv)
 	block1 = qemu_mallocz(BLOCK_SIZE);
 	block2 = qemu_mallocz(BLOCK_SIZE);
 	
-	int size1 = BLOCK_SIZE / BDRV_SECTOR_SIZE;	      
+	int size1 = BLOCK_SIZE / BDRV_SECTOR_SIZE;		
 	int size2 = BLOCK_SIZE / BDRV_SECTOR_SIZE;
-	int read_size1, read_size2;
+	int read_size;
 	int ret1, ret2;
-	uint64_t current_sector1 = 0;
-	uint64_t current_sector2 = 0;
+	int pos1, pos2;
+	int current_sector1 = 0;
+	int current_sector2 = 0;
 	
 	while (disk1size && disk2size) {
-		read_size1 = MIN(size1, disk1size);
-		ret1 = bdrv_read(bs1, current_sector1, block1, read_size1);
+		read_size = MIN(size1, disk1size);
+		ret1 = bdrv_read(bs1, 0, block1, read_size);
 		if (ret1 < 0) {
 			printf("reading error\n");
 			goto fail;
-		}
-
-		read_size2 = MIN(size2, disk2size);
-		ret2 = bdrv_read(bs2, current_sector2, block2, read_size2);
+		}		   
+		printf("read size?: %d\n", ret1);
+		read_size = MIN(size2, disk2size);
+		ret2 = bdrv_read(bs2, 0, block2, read_size); 
+		printf("read size?: %d\n", ret2);
 		if (ret2 < 0) {					  
 			printf("reading error\n");
 			goto fail;
-		}
-		
-		compsha1(block1, block2, read_size2 * BDRV_SECTOR_SIZE);
-		
-		disk1size -= read_size1;
-		disk2size -= read_size2;
-
-		current_sector1 += read_size1;
-		current_sector2 += read_size2;
+		}		
+		disk1size -= ret1;
+		disk2size -= ret2;
 	}
 	
 fail:

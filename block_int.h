@@ -27,7 +27,6 @@
 #include "block.h"
 #include "qemu-option.h"
 #include "qemu-queue.h"
-#include "sha1.h"
 
 #define BLOCK_FLAG_ENCRYPT	1
 #define BLOCK_FLAG_COMPAT6	4
@@ -199,7 +198,6 @@ struct BlockDriverState {
     BlockErrorAction on_read_error, on_write_error;
     char device_name[32];
     unsigned long *dirty_bitmap;
-    sha1_digest *block_sha1;
     int64_t dirty_count;
     int in_use; /* users other than guest access, eg. block migration */
     QTAILQ_ENTRY(BlockDriverState) list;
