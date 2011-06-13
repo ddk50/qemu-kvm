@@ -25,8 +25,6 @@
 
 typedef struct QEMUFileSocket QEMUFileSocket;
 
-#define BLOCK_SIZE (BDRV_SECTORS_PER_DIRTY_CHUNK << BDRV_SECTOR_BITS)
-
 #define BLK_MIG_FLAG_DEVICE_BLOCK       0x01
 #define BLK_MIG_FLAG_EOS                0x02
 #define BLK_MIG_FLAG_PROGRESS           0x04
@@ -95,7 +93,7 @@ static void blk_send(QEMUFile *f, BlkMigBlock * blk)
     int len;
     SHA1_CTX ctx;
     uint8_t hash1[20];
-    uint8_t hash2[20];    
+    uint8_t hash2[20];
 
     /* sector number and flags */
     qemu_put_be64(f, (blk->sector << BDRV_SECTOR_BITS)
@@ -108,7 +106,7 @@ static void blk_send(QEMUFile *f, BlkMigBlock * blk)
 
     /* 1. receive hash from the receiver */
     qemu_direct_get_buffer(f, hash1, sizeof(hash1));
-
+    
     SHA1Init(&ctx);
     SHA1Update(&ctx, blk->buf, BLOCK_SIZE);
     SHA1Final(hash2, &ctx);

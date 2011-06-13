@@ -9,11 +9,17 @@ By Steve Reid <steve@edmweb.com>
 100% Public Domain
 */
 
+#define SHA1_HASH_SIZE 20
+
 typedef struct {
     uint32_t state[5];
     uint32_t count[2];
     unsigned char buffer[64];
 } SHA1_CTX;
+
+typedef struct {
+    unsigned char digest[SHA1_HASH_SIZE];
+} sha1_digest;
 
 void SHA1Transform(uint32_t state[5], const unsigned char buffer[64]);
 void SHA1Init(SHA1_CTX* context);

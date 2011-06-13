@@ -5,6 +5,7 @@
 #include "qemu-common.h"
 #include "qemu-option.h"
 #include "qobject.h"
+#include "sha1.h"
 
 /* block.c */
 typedef struct BlockDriver BlockDriver;
@@ -236,6 +237,8 @@ int bdrv_img_create(const char *filename, const char *fmt,
 #define BDRV_SECTORS_PER_DIRTY_CHUNK 2048
 //#define BDRV_SECTORS_PER_DIRTY_CHUNK 512
 
+#define BLOCK_SIZE (BDRV_SECTORS_PER_DIRTY_CHUNK << BDRV_SECTOR_BITS)
+
 void bdrv_set_dirty_tracking(BlockDriverState *bs, int enable);
 int bdrv_get_dirty(BlockDriverState *bs, int64_t sector);
 void bdrv_reset_dirty(BlockDriverState *bs, int64_t cur_sector,
@@ -244,6 +247,10 @@ int64_t bdrv_get_dirty_count(BlockDriverState *bs);
 
 void bdrv_set_in_use(BlockDriverState *bs, int in_use);
 int bdrv_in_use(BlockDriverState *bs);
+
+sha1_digest* bdrv_get_sha1hash(BlockDriverState *bs, int64_t sector);
+void bdrv_set_sha1hash(BlockDriverState *bs, sha1_digest *sha1, int64_t sector);
+void bdrv_reset_sha1hash(BlockDriverState *bs, int64_t sector);
 
 typedef enum {
     BLKDBG_L1_UPDATE,

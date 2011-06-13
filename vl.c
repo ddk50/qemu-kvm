@@ -775,7 +775,7 @@ char *get_boot_devices_list(uint32_t *size)
         char *devpath = NULL, *bootpath;
         int len;
 
-        if (i->dev) {
+        if (i->dev) {            
             devpath = qdev_get_fw_dev_path(i->dev);
             assert(devpath);
         }

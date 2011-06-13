@@ -116,7 +116,7 @@ static int buffered_get_buffer(void *opaque, uint8_t *buf, int64_t pos, int size
     ssize_t ret;    
     
     ret = s->get_buffer(s->opaque, buf + offset, size - offset);
-    /* migration.c: migrate_fd_get_buffer will called */
+    /* migration.c: migrate_fd_get_buffer will be called */
     if (ret < 0) {
         printf("%s: error\n", __FUNCTION__);
     }
