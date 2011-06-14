@@ -235,6 +235,8 @@ int bdrv_img_create(const char *filename, const char *fmt,
 
 #define BDRV_SECTORS_PER_DIRTY_CHUNK 2048
 
+void start_trace_full_dirty(void);
+
 void bdrv_set_dirty_tracking(BlockDriverState *bs, int enable);
 int bdrv_get_dirty(BlockDriverState *bs, int64_t sector);
 void bdrv_reset_dirty(BlockDriverState *bs, int64_t cur_sector,
@@ -243,6 +245,12 @@ int64_t bdrv_get_dirty_count(BlockDriverState *bs);
 
 void bdrv_set_in_use(BlockDriverState *bs, int in_use);
 int bdrv_in_use(BlockDriverState *bs);
+
+void bdrv_set_full_dirty_tracking(BlockDriverState *bs, int enable);
+int bdrv_get_full_dirty(BlockDriverState *bs, int64_t sector);
+void bdrv_reset_full_dirty(BlockDriverState *bs, int64_t cur_sector,
+                           int nr_sectors);
+int64_t bdrv_get_full_dirty_count(BlockDriverState *bs);
 
 typedef enum {
     BLKDBG_L1_UPDATE,
