@@ -1427,6 +1427,7 @@ static void main_loop(void)
     
     /* dirty-tracking for block-migration */
     start_trace_full_dirty();
+    //stop_trace_full_dirty();
     
     if (kvm_enabled()) {
         kvm_main_loop();

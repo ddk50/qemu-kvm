@@ -941,6 +941,15 @@ void start_trace_full_dirty(void)
     }    
 }
 
+void stop_trace_full_dirty(void)
+{
+    BlockDriverState *bs;
+
+    QTAILQ_FOREACH(bs, &bdrv_states, list) {
+        bdrv_set_full_dirty_tracking(bs, 0);
+    }    
+}
+
 static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
                              int nb_sectors, int dirty)
 {
@@ -977,9 +986,6 @@ static void set_full_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
 
     start = sector_num / BDRV_SECTORS_PER_DIRTY_CHUNK;
     end = (sector_num + nb_sectors - 1) / BDRV_SECTORS_PER_DIRTY_CHUNK;
-
-    printf("tracking ... dirty: sector_num %lld, nb_sectors %d\n", 
-	   sector_num, nb_sectors);
 
     for (; start <= end; start++) {
         idx = start / (sizeof(unsigned long) * 8);
@@ -2789,6 +2795,7 @@ void bdrv_set_full_dirty_tracking(BlockDriverState *bs, int enable)
 
     bs->full_dirty_count = 0;
     if (enable) {
+        printf("%s: enabled\n", __FUNCTION__);
         if (!bs->full_dirty_bitmap) {
             bitmap_size = (bdrv_getlength(bs) >> BDRV_SECTOR_BITS) +
                     BDRV_SECTORS_PER_DIRTY_CHUNK * 8 - 1;
@@ -2797,6 +2804,7 @@ void bdrv_set_full_dirty_tracking(BlockDriverState *bs, int enable)
             bs->full_dirty_bitmap = qemu_mallocz(bitmap_size);
         }
     } else {
+        printf("%s: disabled\n", __FUNCTION__);
         if (bs->full_dirty_bitmap) {
             qemu_free(bs->full_dirty_bitmap);
             bs->full_dirty_bitmap = NULL;

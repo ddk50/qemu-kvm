@@ -236,6 +236,7 @@ int bdrv_img_create(const char *filename, const char *fmt,
 #define BDRV_SECTORS_PER_DIRTY_CHUNK 2048
 
 void start_trace_full_dirty(void);
+void stop_trace_full_dirty(void);
 
 void bdrv_set_dirty_tracking(BlockDriverState *bs, int enable);
 int bdrv_get_dirty(BlockDriverState *bs, int64_t sector);
