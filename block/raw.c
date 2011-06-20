@@ -62,7 +62,7 @@ static int raw_truncate(BlockDriverState *bs, int64_t offset)
 
 static int raw_probe(const uint8_t *buf, int buf_size, const char *filename)
 {
-   return 1; /* everything can be opened as raw image */
+    return 1; /* everything can be opened as raw image */
 }
 
 static int raw_discard(BlockDriverState *bs, int64_t sector_num, int nb_sectors)
