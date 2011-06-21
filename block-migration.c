@@ -592,7 +592,7 @@ static int block_save_live(Monitor *mon, QEMUFile *f, int stage, void *opaque)
 {
     DPRINTF("Enter save live stage %d submitted %d transferred %d\n",
             stage, block_mig_state.submitted, block_mig_state.transferred);
-
+    
     if (stage < 0) {
         blk_mig_cleanup(mon);
         return 0;

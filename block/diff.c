@@ -153,6 +153,8 @@ static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
         }
         s->dirty_bitmap[idx] = val;
     }
+
+    /* TODO: write dirty_bitmap to physical disk */
 }
 
 static int get_dirty(BDRVDiffState *s, int64_t sector)
@@ -386,6 +388,7 @@ static int diff_get_dirtymap(BlockDriverState *bs, uint8_t *buf,
 static int diff_get_dirty(BlockDriverState *bs, uint64_t cur_sector)
 {
     BDRVDiffState *s = bs->opaque;
+    printf("%s\n", __FUNCTION__);
     return get_dirty(s, cur_sector);
 }
 
@@ -420,7 +423,7 @@ static BlockDriver bdrv_diff = {
     .bdrv_has_zero_init = diff_has_zero_init,
 
     .bdrv_get_block_dirtymap = diff_get_dirtymap,
-    .bdrv_get_block_dirty = diff_get_dirty,
+    .bdrv_get_block_dirty    = diff_get_dirty,
 };
 
 static void bdrv_diff_init(void)
