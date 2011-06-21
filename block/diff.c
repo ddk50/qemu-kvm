@@ -13,6 +13,7 @@ typedef struct diff_header {
     uint32_t generation;
     uint32_t bitmap_count; /* always 1 */
     uint32_t bitmap_size;
+    uint32_t freezed; /* if 1, does not execute */
 } DiffHeader;
 
 typedef struct BDRVDiffState {    
@@ -118,10 +119,8 @@ fail:
 static int diff_read(BlockDriverState *bs, int64_t sector_num,
                      uint8_t *buf, int nb_sectors)
 {
-    BDRVDiffState *s = bs->opaque;
-    
-    DPRINTF("read: %lld %s\n", sector_num, __FUNCTION__);
-    
+    BDRVDiffState *s = bs->opaque;    
+    DPRINTF("read: %lld %s\n", sector_num, __FUNCTION__);    
     return bdrv_read(bs->file,
                      sector_num + (s->diff_sectors_offset / 512),
                      buf, nb_sectors);
@@ -384,6 +383,12 @@ static int diff_get_dirtymap(BlockDriverState *bs, uint8_t *buf,
     return s->bitmap_size;
 }
 
+static int diff_get_dirty(BlockDriverState *bs, uint64_t cur_sector)
+{
+    BDRVDiffState *s = bs->opaque;
+    return get_dirty(s, cur_sector);
+}
+
 static BlockDriver bdrv_diff = {
     .format_name        = "diff",
 
@@ -414,7 +419,8 @@ static BlockDriver bdrv_diff = {
     .create_options     = diff_create_options,
     .bdrv_has_zero_init = diff_has_zero_init,
 
-    .bdrv_get_dirtymap  = diff_get_dirtymap,
+    .bdrv_get_block_dirtymap = diff_get_dirtymap,
+    .bdrv_get_block_dirty = diff_get_dirty,
 };
 
 static void bdrv_diff_init(void)

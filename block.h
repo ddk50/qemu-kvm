@@ -247,11 +247,10 @@ int64_t bdrv_get_dirty_count(BlockDriverState *bs);
 void bdrv_set_in_use(BlockDriverState *bs, int in_use);
 int bdrv_in_use(BlockDriverState *bs);
 
-void bdrv_set_full_dirty_tracking(BlockDriverState *bs, int enable);
-int bdrv_get_full_dirty(BlockDriverState *bs, int64_t sector);
-void bdrv_reset_full_dirty(BlockDriverState *bs, int64_t cur_sector,
-                           int nr_sectors);
-int64_t bdrv_get_full_dirty_count(BlockDriverState *bs);
+int bdrv_is_enabled_diff_sending(BlockDriverState *bs);
+int bdrv_get_block_dirty(BlockDriverState *bs, uint64_t cur_sector);
+int bdrv_get_block_dirtymap(BlockDriverState *bs, uint8_t *buf, 
+                            int generation);
 
 typedef enum {
     BLKDBG_L1_UPDATE,

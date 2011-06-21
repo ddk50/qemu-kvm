@@ -81,8 +81,10 @@ struct BlockDriver {
     int (*bdrv_merge_requests)(BlockDriverState *bs, BlockRequest* a,
         BlockRequest *b);
 
-    int (*bdrv_get_dirtymap)(BlockDriverState *bs, uint8_t *buf, 
-                             int generation);
+    int (*bdrv_get_block_dirtymap)(BlockDriverState *bs, uint8_t *buf, 
+                                   int generation);
+
+    int (*bdrv_get_block_dirty)(BlockDriverState *bs, uint64_t cur_sector);
 
     const char *protocol_name;
     int (*bdrv_truncate)(BlockDriverState *bs, int64_t offset);
@@ -201,9 +203,6 @@ struct BlockDriverState {
     char device_name[32];
     unsigned long *dirty_bitmap;
     int64_t dirty_count;
-
-    unsigned long *full_dirty_bitmap;
-    int64_t full_dirty_count;
     
     int in_use; /* users other than guest access, eg. block migration */
     QTAILQ_ENTRY(BlockDriverState) list;

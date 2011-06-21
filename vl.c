@@ -1423,11 +1423,7 @@ qemu_irq qemu_system_powerdown;
 
 static void main_loop(void)
 {
-    int r;
-    
-    /* dirty-tracking for block-migration */
-    start_trace_full_dirty();
-    //stop_trace_full_dirty();
+    int r;   
     
     if (kvm_enabled()) {
         kvm_main_loop();

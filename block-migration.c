@@ -83,7 +83,6 @@ typedef struct BlkMigState {
 } BlkMigState;
 
 static BlkMigState block_mig_state;
-static int enable_diff_sending = 1;
 
 static void blk_send(QEMUFile *f, BlkMigBlock * blk)
 {
@@ -244,9 +243,9 @@ static int mig_save_device_bulk(Monitor *mon, QEMUFile *f,
         nr_sectors = total_sectors - cur_sector;
     }
 
-    if (enable_diff_sending && bmds->bs->full_dirty_bitmap) {
+    if (bdrv_is_enabled_diff_sending(bmds->bs)) {
         /* only diff translate */
-        if (bdrv_get_full_dirty(bmds->bs, cur_sector)) {
+        if (bdrv_get_block_dirty(bmds->bs, cur_sector)) {
             /* if dirty send it */
             blk = qemu_malloc(sizeof(BlkMigBlock));
             blk->buf = qemu_malloc(BLOCK_SIZE);
@@ -267,7 +266,7 @@ static int mig_save_device_bulk(Monitor *mon, QEMUFile *f,
             }
             block_mig_state.submitted++;
         }
-    } else {              
+    } else {
         /* normal bulk sending */
         blk = qemu_malloc(sizeof(BlkMigBlock));
         blk->buf = qemu_malloc(BLOCK_SIZE);
