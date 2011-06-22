@@ -34,6 +34,12 @@ static int socket_errno(FdMigrationState *s)
     return socket_error();
 }
 
+/* kazushi addition */
+static int socket_read(FdMigrationState *s, void * buf, size_t size)
+{
+    return recv(s->fd, buf, size, 0);
+}
+
 static int socket_write(FdMigrationState *s, const void * buf, size_t size)
 {
     return send(s->fd, buf, size, 0);
@@ -80,12 +86,13 @@ MigrationState *tcp_start_outgoing_migration(Monitor *mon,
                                              const char *host_port,
                                              int64_t bandwidth_limit,
                                              int detach,
-					     int blk,
-					     int inc)
+                                             int blk,
+                                             int inc)
 {
     struct sockaddr_in addr;
     FdMigrationState *s;
     int ret;
+    int val;
 
     if (parse_host_port(&addr, host_port) < 0)
         return NULL;
@@ -94,6 +101,7 @@ MigrationState *tcp_start_outgoing_migration(Monitor *mon,
 
     s->get_error = socket_errno;
     s->write = socket_write;
+    s->read  = socket_read;
     s->close = tcp_close;
     s->mig_state.cancel = migrate_fd_cancel;
     s->mig_state.get_status = migrate_fd_get_status;
@@ -111,8 +119,11 @@ MigrationState *tcp_start_outgoing_migration(Monitor *mon,
         return NULL;
     }
 
+    val = 1;
+    setsockopt(s->fd, IPPROTO_TCP, TCP_NODELAY, (const char *)&val, sizeof(val));
+
     /* kazushi check blocking socket */
-    //    socket_set_nonblock(s->fd);
+    /*    socket_set_nonblock(s->fd); */
 
     if (!detach) {
         migrate_fd_monitor_suspend(s, mon);
@@ -132,6 +143,8 @@ MigrationState *tcp_start_outgoing_migration(Monitor *mon,
         migrate_fd_error(s);
     } else if (ret >= 0)
         migrate_fd_connect(s);
+
+    
 
     return &s->mig_state;
 }
@@ -187,6 +200,7 @@ int tcp_start_incoming_migration(const char *host_port)
 
     val = 1;
     setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (const char *)&val, sizeof(val));
+    setsockopt(s, IPPROTO_TCP, TCP_NODELAY, (const char *)&val, sizeof(val));
 
     if (bind(s, (struct sockaddr *)&addr, sizeof(addr)) == -1)
         goto err;

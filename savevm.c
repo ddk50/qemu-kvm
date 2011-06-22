@@ -188,6 +188,23 @@ typedef struct QEMUFileSocket
     QEMUFile *file;
 } QEMUFileSocket;
 
+/* kazushi addition */
+static int socket_put_buffer(void *opaque, const uint8_t *buf, int64_t pos, int size)
+{
+    QEMUFileSocket *s = opaque;
+    ssize_t len;
+    do {
+        len = send(s->fd, (void*)buf, size, 0);
+    } while (len == -1 && socket_error() == EINTR);
+
+    if (len == -1) {
+        printf("ERROR: %s\n", __FUNCTION__);
+        len = -socket_error();
+    }
+
+    return len;    
+}
+
 static int socket_get_buffer(void *opaque, uint8_t *buf, int64_t pos, int size)
 {
     QEMUFileSocket *s = opaque;
@@ -197,8 +214,10 @@ static int socket_get_buffer(void *opaque, uint8_t *buf, int64_t pos, int size)
         len = recv(s->fd, (void *)buf, size, 0);
     } while (len == -1 && socket_error() == EINTR);
 
-    if (len == -1)
-        len = -socket_error();
+    if (len == -1) {
+        printf("ERROR: %s\n", __FUNCTION__);
+        len = -socket_error();         
+    }
 
     return len;
 }
@@ -327,8 +346,9 @@ QEMUFile *qemu_fopen_socket(int fd)
     QEMUFileSocket *s = qemu_mallocz(sizeof(QEMUFileSocket));
 
     s->fd = fd;
-    s->file = qemu_fopen_ops(s, NULL, socket_get_buffer, socket_close, 
-			     NULL, NULL, NULL);
+    s->file = qemu_fopen_ops(s, socket_put_buffer, socket_get_buffer, 
+                             socket_close, 
+                             NULL, NULL, NULL);
     return s->file;
 }
 
@@ -2170,3 +2190,57 @@ void do_info_snapshots(Monitor *mon)
     qemu_free(available_snapshots);
 
 }
+
+/* kazushi */
+int qemu_direct_put_buffer(QEMUFile *f, const uint8_t *buf, ssize_t size)
+{    
+    /* const uint8_t *p = buf; */
+    /* const uint8_t *endp = p + size; */
+    /* int write_size = 0; */
+    
+    /* while (p < endp) { */
+    /*     int num_bytes = write(f->opaque, p, endp - p); */
+    /*     if (num_bytes < 0) { */
+    /*         if (errno == EINTR) continue; */
+    /*         perror("write failed\n"); */
+    /*         break; */
+    /*     } */
+    /*     p += num_bytes; */
+    /*     write_size += num_bytes; */
+    /* } */
+    
+    /* return write_size; */
+    if (f->put_buffer == NULL) {
+        perror("put_buffer is NULL");
+        abort();
+    }
+    
+    return f->put_buffer(f->opaque, buf, 0, size);
+}
+
+/* kazushi */
+int qemu_direct_get_buffer(QEMUFile *f, uint8_t *buf, ssize_t size)
+{
+    /* uint8_t *p = buf; */
+    /* uint8_t *endp = p + size; */
+    /* int read_size = 0; */
+    /* while (p < endp) { */
+    /*     int num_bytes = read(s->fd, p, endp - p); */
+    /*     if (num_bytes < 0) { */
+    /*         if (errno == EINTR) continue; */
+    /*         perror("read failed\n"); */
+    /*         break; */
+    /*     } */
+    /*     p += num_bytes; */
+    /*     read_size += num_bytes; */
+    /* } */
+
+    /* return read_size; */
+    if (f->get_buffer == NULL) {
+        perror("get_buffer is NULL");
+        abort();
+    }
+    
+    return f->get_buffer(f->opaque, buf, 0, size);
+}
+

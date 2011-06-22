@@ -21,6 +21,7 @@
 #include "block-migration.h"
 #include "migration.h"
 #include "blockdev.h"
+#include "qemu_socket.h"
 #include <assert.h>
 
 #define BLOCK_SIZE (BDRV_SECTORS_PER_DIRTY_CHUNK << BDRV_SECTOR_BITS)
@@ -28,6 +29,7 @@
 #define BLK_MIG_FLAG_DEVICE_BLOCK       0x01
 #define BLK_MIG_FLAG_EOS                0x02
 #define BLK_MIG_FLAG_PROGRESS           0x04
+#define BLK_MIG_FLAG_NEGOS              0x08
 
 #define MAX_IS_ALLOCATED_SEARCH 65536
 
@@ -83,6 +85,10 @@ typedef struct BlkMigState {
 } BlkMigState;
 
 static BlkMigState block_mig_state;
+
+/* from savevm.c */
+extern int qemu_direct_put_buffer(QEMUFile *f, const uint8_t *buf, ssize_t size);
+extern int qemu_direct_get_buffer(QEMUFile *f, uint8_t *buf, ssize_t size);
 
 static void blk_send(QEMUFile *f, BlkMigBlock * blk)
 {
@@ -587,6 +593,93 @@ static void blk_mig_cleanup(Monitor *mon)
     monitor_printf(mon, "\n");
 }
 
+static int start_outgoing_negos(void)
+{
+    struct sockaddr_in addr;
+    uint64_t banner = 0ULL;
+    int fd;
+    int val;
+    int ret;
+    int i = 0;
+
+    fd = qemu_socket(PF_INET, SOCK_STREAM, 0);
+    if (fd == -1) {
+        close(fd);
+        return -1;
+    }    
+
+    val = 1;
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (const char *)&val, sizeof(val));
+    
+    if (parse_host_port(&addr, "0:7777") < 0) {
+        printf("parse error\n");
+        return -1;
+    }
+    
+    
+    ret = connect(fd, (struct sockaddr *)&addr, sizeof(addr));
+    if (ret == -1) {
+        printf("connect error\n");
+        return -1;
+    }
+    
+    printf("recving...");
+    recv(fd, &banner, sizeof(banner), 0);
+    printf("----banner: 0x%08llx\n", banner);
+
+    close(fd);
+
+    return 1;
+}
+
+static int start_incoming_negos(void)
+{
+    struct sockaddr_in addr;
+    socklen_t addrlen = sizeof(addr);
+    uint64_t banner = 0x123456789ULL;
+    int fd;
+    int val;
+    int newfd;
+    static int already_execute = 0;
+    int i = 0;
+
+    if (already_execute)
+        return 1;
+
+    already_execute = 1;
+    
+    fd = qemu_socket(PF_INET, SOCK_STREAM, 0);
+    if (fd == -1) {
+        close(fd);
+        return -1;
+    }
+
+    val = 1;
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (const char *)&val, sizeof(val));
+    
+    if (parse_host_port(&addr, "0:7777") < 0)
+        return -1;
+
+    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) == -1)
+        return -1;
+
+    if (listen(fd, 1) == -1)
+        return -1;
+    
+    do {
+        newfd = qemu_accept(fd, (struct sockaddr *)&addr, &addrlen);
+    } while (newfd == -1 && socket_error() == EINTR);
+    
+    printf("sending...");
+    send(newfd, &banner, sizeof(banner), 0);
+    printf("end\n");
+    
+    close(newfd);
+    close(fd);
+    
+    return 1;
+}
+
 // kazushi check
 static int block_save_live(Monitor *mon, QEMUFile *f, int stage, void *opaque)
 {
@@ -606,10 +699,18 @@ static int block_save_live(Monitor *mon, QEMUFile *f, int stage, void *opaque)
     }
 
     if (stage == 1) {
+        int i = 0;
         init_blk_migration(mon, f);
 
         /* start track dirty blocks */
         set_dirty_tracking(1);
+        
+        /* start negos */
+        for (i = 0 ; i < 5000 ; i++)
+            qemu_put_be64(f, BLK_MIG_FLAG_NEGOS);
+        
+        if (start_outgoing_negos() < 0)            
+            abort();
     }
 
     flush_blks(f);
@@ -641,7 +742,7 @@ static int block_save_live(Monitor *mon, QEMUFile *f, int stage, void *opaque)
                 }
             }
         }
-
+        
         flush_blks(f);
 
         if (qemu_file_has_error(f)) {
@@ -722,9 +823,7 @@ static int block_load(QEMUFile *f, void *opaque, int version_id)
 
             buf = qemu_malloc(BLOCK_SIZE);
 
-            qemu_get_buffer(f, buf, BLOCK_SIZE);
-	    //	    printf("----bs: 0x%x, addr: 0x%x, nr_sectors: %d----\n",
-	    //		   bs, addr, nr_sectors); 
+            qemu_get_buffer(f, buf, BLOCK_SIZE);            
             ret = bdrv_write(bs, addr, buf, nr_sectors);
 
             qemu_free(buf);
@@ -739,6 +838,10 @@ static int block_load(QEMUFile *f, void *opaque, int version_id)
             printf("Completed %d %%%c", (int)addr,
                    (addr == 100) ? '\n' : '\r');
             fflush(stdout);
+        } else if (flags & BLK_MIG_FLAG_NEGOS) {
+            uint64_t banner = 0x123456789ULL;
+            if (start_incoming_negos() < 0)
+                abort();
         } else if (!(flags & BLK_MIG_FLAG_EOS)) {
             fprintf(stderr, "Unknown flags\n");
             return -EINVAL;

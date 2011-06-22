@@ -2789,7 +2789,6 @@ int bdrv_in_use(BlockDriverState *bs)
 int bdrv_is_enabled_diff_sending(BlockDriverState *bs)
 {
     /* TODO: if diff block device diff sending will be enabled */
-    printf("diff sending is enabled\n");
     return 1;
 }
 

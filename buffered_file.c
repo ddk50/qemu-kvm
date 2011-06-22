@@ -22,6 +22,7 @@
 
 typedef struct QEMUFileBuffered
 {
+    BufferedGetFunc *get_buffer;
     BufferedPutFunc *put_buffer;
     BufferedPutReadyFunc *put_ready;
     BufferedWaitForUnfreezeFunc *wait_for_unfreeze;
@@ -105,6 +106,22 @@ static void buffered_flush(QEMUFileBuffered *s)
     DPRINTF("flushed %zu of %zu byte(s)\n", offset, s->buffer_size);
     memmove(s->buffer, s->buffer + offset, s->buffer_size - offset);
     s->buffer_size -= offset;
+}
+
+/* kazushi */
+static int buffered_get_buffer(void *opaque, uint8_t *buf, int64_t pos, int size)
+{
+    QEMUFileBuffered *s = opaque;
+    int offset = 0;
+    ssize_t ret;    
+    
+    ret = s->get_buffer(s->opaque, buf + offset, size - offset);
+    /* migration.c: migrate_fd_get_buffer will be called */
+    if (ret < 0) {
+        printf("%s: error\n", __FUNCTION__);
+    }
+    
+    return ret;
 }
 
 static int buffered_put_buffer(void *opaque, const uint8_t *buf, int64_t pos, int size)
@@ -253,6 +270,7 @@ static void buffered_rate_tick(void *opaque)
 
 QEMUFile *qemu_fopen_ops_buffered(void *opaque,
                                   size_t bytes_per_sec,
+                                  BufferedGetFunc *get_buffer,
                                   BufferedPutFunc *put_buffer,
                                   BufferedPutReadyFunc *put_ready,
                                   BufferedWaitForUnfreezeFunc *wait_for_unfreeze,
@@ -265,14 +283,16 @@ QEMUFile *qemu_fopen_ops_buffered(void *opaque,
     s->opaque = opaque;
     s->xfer_limit = bytes_per_sec / 10;
     s->put_buffer = put_buffer;
+    s->get_buffer = get_buffer;
     s->put_ready = put_ready;
     s->wait_for_unfreeze = wait_for_unfreeze;
     s->close = close;
 
-    s->file = qemu_fopen_ops(s, buffered_put_buffer, NULL,
+    s->file = qemu_fopen_ops(s, buffered_put_buffer, 
+                             buffered_get_buffer,
                              buffered_close, buffered_rate_limit,
                              buffered_set_rate_limit,
-			     buffered_get_rate_limit);
+                             buffered_get_rate_limit);
 
     s->timer = qemu_new_timer(rt_clock, buffered_rate_tick, s);
 
