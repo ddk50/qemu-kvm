@@ -206,7 +206,7 @@ static void blk_mig_read_cb(void *opaque, int ret)
 
     add_avg_read_time(blk->time);
 
-    printf("blk->sector: %lld, blk->nr_sectors: %d\n", blk->sector, blk->nr_sectors);
+    //    printf("blk->sector: %lld, blk->nr_sectors: %d\n", blk->sector, blk->nr_sectors);
 
     QSIMPLEQ_INSERT_TAIL(&block_mig_state.blk_list, blk, entry);
     bmds_set_aio_inflight(blk->bmds, blk->sector, blk->nr_sectors, 0);
@@ -446,7 +446,7 @@ static int mig_save_device_dirty(Monitor *mon, QEMUFile *f,
 
                 blk->time = qemu_get_clock_ns(rt_clock);
 
-                printf("insert blk_mig_read_cb\n");
+                //printf("insert blk_mig_read_cb\n");
 
                 blk->aiocb = bdrv_aio_readv(bmds->bs, sector, &blk->qiov,
                                             nr_sectors, blk_mig_read_cb, blk);
@@ -617,11 +617,12 @@ static int start_outgoing_negos(void)
     }
     
     
-    ret = connect(fd, (struct sockaddr *)&addr, sizeof(addr));
-    if (ret == -1) {
-        printf("connect error\n");
-        return -1;
-    }
+    do {
+        ret = connect(fd, (struct sockaddr *)&addr, sizeof(addr));
+        if (ret == -1) {
+            printf("connect error trying ... \n");
+        }
+    } while (ret < 0);
     
     printf("recving...");
     recv(fd, &banner, sizeof(banner), 0);
@@ -709,7 +710,7 @@ static int block_save_live(Monitor *mon, QEMUFile *f, int stage, void *opaque)
         for (i = 0 ; i < 5000 ; i++)
             qemu_put_be64(f, BLK_MIG_FLAG_NEGOS);
         
-        if (start_outgoing_negos() < 0)            
+        if (start_outgoing_negos() < 0)
             abort();
     }
 

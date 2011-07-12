@@ -33,7 +33,7 @@ typedef struct BDRVDiffState {
 #define HEADER_VERSION 0x00020000
 #define HEADER_SIZE sizeof(DiffHeader)
 
-#define DEBUG_DIFF_FILE
+//#define DEBUG_DIFF_FILE
 
 #ifdef DEBUG_DIFF_FILE
 #define DPRINTF(fmt, ...) \
