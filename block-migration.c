@@ -228,7 +228,7 @@ static int mig_save_device_bulk(Monitor *mon, QEMUFile *f,
     if (bmds->shared_base) {
       while (cur_sector < total_sectors &&
 	     !bdrv_is_allocated(bs, cur_sector, MAX_IS_ALLOCATED_SEARCH,
-				&nr_sectors)) {
+                            &nr_sectors)) {
           cur_sector += nr_sectors;
       }
     }
@@ -251,7 +251,8 @@ static int mig_save_device_bulk(Monitor *mon, QEMUFile *f,
 
     if (bdrv_is_enabled_diff_sending(bmds->bs)) {
         /* only diff translate */
-        if (bdrv_get_block_dirty(bmds->bs, cur_sector)) {
+        /* currently, do not recognize between 0: Acc and 1:AccDirty */
+        if (bdrv_get_block_dirty(bmds->bs, cur_sector, 0)) {
             /* if dirty send it */
             blk = qemu_malloc(sizeof(BlkMigBlock));
             blk->buf = qemu_malloc(BLOCK_SIZE);
@@ -871,4 +872,7 @@ void blk_mig_init(void)
 
     register_savevm_live(NULL, "block", 0, 1, block_set_params,
                          block_save_live, NULL, block_load, &block_mig_state);
+
+    /* kazushi check */
+    printf("check BLOCK_SIZE: %d\n", BLOCK_SIZE);
 }

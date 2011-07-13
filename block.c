@@ -2792,7 +2792,8 @@ int bdrv_is_enabled_diff_sending(BlockDriverState *bs)
     return 1;
 }
 
-int bdrv_get_block_dirty(BlockDriverState *bs, uint64_t cur_sector)
+int bdrv_get_block_dirty(BlockDriverState *bs, uint64_t cur_sector, 
+			 int generation)
 {
     BlockDriver *drv = bs->drv;
 
@@ -2802,7 +2803,7 @@ int bdrv_get_block_dirty(BlockDriverState *bs, uint64_t cur_sector)
     if (!drv)
         return -ENOMEDIUM;
 
-    return drv->bdrv_get_block_dirty(bs, cur_sector);
+    return drv->bdrv_get_block_dirty(bs, cur_sector, generation);
 }
 
 int bdrv_get_block_dirtymap(BlockDriverState *bs, uint8_t *buf, 

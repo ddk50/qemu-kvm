@@ -11,7 +11,7 @@ typedef struct diff_header {
     uint64_t total_size;
     uint64_t mom_sign;
     uint32_t generation;
-    uint32_t bitmap_count; /* always 1 */
+    uint32_t bitmap_count; /* currently, always 2 (Dirty, AccDirty) */
     uint32_t bitmap_size;
     uint32_t freezed; /* if 1, does not execute */
 } DiffHeader;
@@ -22,8 +22,7 @@ typedef struct BDRVDiffState {
     uint32_t mon_sign;
     int bitmap_count;   
     uint32_t bitmap_size;
-    unsigned long **diff_bitmap;
-    unsigned long *dirty_bitmap;
+    unsigned long **diff_bitmap; /* 0: Dirty, 1: AccDirty */
     uint32_t dirty_count;
     uint32_t sector;
     uint64_t total_size;
@@ -72,7 +71,7 @@ static int diff_open(BlockDriverState *bs, int flags)
         goto fail;
     }
 
-    assert(diff.bitmap_count == 1);
+    assert(diff.bitmap_count == 2);
 
     /* read  */
     s->generation   = diff.generation;
@@ -105,7 +104,19 @@ static int diff_open(BlockDriverState *bs, int flags)
     bitmap_size = (s->total_size >> BDRV_SECTOR_BITS) +
         BDRV_SECTORS_PER_DIRTY_CHUNK * 8 - 1;
     bitmap_size /= BDRV_SECTORS_PER_DIRTY_CHUNK * 8;   
-    s->dirty_bitmap = qemu_mallocz(bitmap_size);
+//    s->dirty_bitmap = qemu_mallocz(bitmap_size);
+
+    printf("kaz s->total_size: %llu\n", s->total_size);
+    printf("kaz bitmapsize: %u\n", s->bitmap_size);
+    printf("kaz BDRV_SECTOR_BITS: %d\n", BDRV_SECTOR_BITS);
+    printf("kaz BDRV_SECTORS_PER_DIRTY_CHUNK: %d\n", BDRV_SECTOR_BITS);
+    printf("kaz bytes per dirty_chunk: %d\n", BDRV_SECTORS_PER_DIRTY_CHUNK << BDRV_SECTOR_BITS);
+    printf("kaz 1 sector size: %d\n", 1 << BDRV_SECTOR_BITS);
+
+    printf("bitmap_size = (s->total_size >> BDRV_SECTOR_BITS): %llu\n",
+	   (s->total_size >> BDRV_SECTOR_BITS));
+
+    printf("BDRV_SECTORS_PER_DIRTY_CHUNK * 8: %d\n", BDRV_SECTORS_PER_DIRTY_CHUNK * 8);
 
     return 0;
     
@@ -127,7 +138,7 @@ static int diff_read(BlockDriverState *bs, int64_t sector_num,
 }
 
 static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
-                             int nb_sectors, int dirty)
+                             int nb_sectors, int dirty, int generation)
 {
     BDRVDiffState *s = bs->opaque;
     int64_t start, end;
@@ -139,7 +150,7 @@ static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
     for (; start <= end; start++) {
         idx = start / (sizeof(unsigned long) * 8);
         bit = start % (sizeof(unsigned long) * 8);
-        val = s->dirty_bitmap[idx];
+        val = s->diff_bitmap[generation][idx];
         if (dirty) {
             if (!(val & (1UL << bit))) {
                 s->dirty_count++;
@@ -151,21 +162,21 @@ static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
                 val &= ~(1UL << bit);
             }
         }
-        s->dirty_bitmap[idx] = val;
+        s->diff_bitmap[generation][idx] = val;
     }
 
-    /* TODO: write dirty_bitmap to physical disk */
+    /* TODO: write diff_bitmap to physical disk */
 }
 
-static int get_dirty(BDRVDiffState *s, int64_t sector)
+static int get_dirty(BDRVDiffState *s, int64_t sector, int generation)
 {
-    int64_t chunk = sector / (int64_t)BDRV_SECTORS_PER_DIRTY_CHUNK;    
+    int64_t chunk = sector / (int64_t)BDRV_SECTORS_PER_DIRTY_CHUNK;
 
     assert(s->total_size != 0);
 
-    if (s->dirty_bitmap &&
+    if (s->diff_bitmap[generation] &&
         (sector << BDRV_SECTOR_BITS) < s->total_size) {
-        return !!(s->dirty_bitmap[chunk / (sizeof(unsigned long) * 8)] &
+        return !!(s->diff_bitmap[generation][chunk / (sizeof(unsigned long) * 8)] &
             (1UL << (chunk % (sizeof(unsigned long) * 8))));
     } else {
         return 0;
@@ -177,7 +188,8 @@ static int diff_write(BlockDriverState *bs, int64_t sector_num,
 {
     BDRVDiffState *s = bs->opaque;
     
-    set_dirty_bitmap(bs, sector_num, nb_sectors, 1);
+    set_dirty_bitmap(bs, sector_num, nb_sectors, 1, 0);    
+    set_dirty_bitmap(bs, sector_num, nb_sectors, 1, 1);
 
     DPRINTF("write: %lld %s\n", sector_num, __FUNCTION__);
     
@@ -206,7 +218,8 @@ static BlockDriverAIOCB *diff_aio_writev(BlockDriverState *bs,
 {
     BDRVDiffState *s = bs->opaque;
 
-    set_dirty_bitmap(bs, sector_num, nb_sectors, 1);
+    set_dirty_bitmap(bs, sector_num, nb_sectors, 1, 0);
+    set_dirty_bitmap(bs, sector_num, nb_sectors, 1, 1);
     
     return bdrv_aio_writev(bs->file,
                            sector_num + (s->diff_sectors_offset / 512), 
@@ -218,7 +231,7 @@ static void diff_close(BlockDriverState *bs)
     BDRVDiffState *s = bs->opaque;
     int i;
 
-    qemu_free(s->dirty_bitmap);
+//    qemu_free(s->dirty_bitmap);
 
     for (i = 0 ; i < s->bitmap_count ; i++)
         qemu_free(s->diff_bitmap[i]);    
@@ -288,7 +301,6 @@ static BlockDriverAIOCB *diff_aio_ioctl(BlockDriverState *bs,
 static int diff_create(const char *filename, QEMUOptionParameter *options)
 {
     int fd;
-    int i;
     int result = 0;
     int64_t total_size = 0;
     int64_t real_size = 0;
@@ -312,19 +324,20 @@ static int diff_create(const char *filename, QEMUOptionParameter *options)
     header.header_size  = HEADER_SIZE;
     header.mom_sign     = 0; /* mon sign */
     header.generation   = 0; /* one */
-    header.bitmap_count = 1; /* currently, always one */    
+    header.bitmap_count = 2; /* currently, always 2 (Dirty, AccDirty) */
     header.sector       = 512;
     header.total_size   = total_size;
 
     bitmap_size = (total_size >> BDRV_SECTOR_BITS) +
         BDRV_SECTORS_PER_DIRTY_CHUNK * 8 - 1;
     bitmap_size /= BDRV_SECTORS_PER_DIRTY_CHUNK * 8;
+    header.bitmap_size  = bitmap_size;
     
-    header.bitmap_size  = header.bitmap_count * bitmap_size;
-    bitmap = qemu_mallocz(header.bitmap_size);
+    uint64_t total_bitmap_size = bitmap_size * header.bitmap_count;
+    bitmap = qemu_mallocz(total_bitmap_size);
     DPRINTF("bitmap: %lf [KBytes]\n", header.bitmap_size / 1024.0);
 
-    real_size = total_size + sizeof(header) + header.bitmap_size;
+    real_size = total_size + sizeof(header) + total_bitmap_size;
     DPRINTF("real_size: %lf [GBytes]\n", real_size / 1024.0 / 1024.0 / 1024.0);
 
     fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY,
@@ -338,14 +351,11 @@ static int diff_create(const char *filename, QEMUOptionParameter *options)
             result = -errno;            
             goto exit;
         }
-
-        for (i = 0 ; i < header.bitmap_count ; i++) {
-            /* write bitmap */
-            if (qemu_write_full(fd, bitmap, header.bitmap_size) 
-                != header.bitmap_size) {            
-                result = -errno;
-                goto exit;
-            }
+        
+        if (qemu_write_full(fd, bitmap, total_bitmap_size) != 
+            total_bitmap_size) {
+            result = -errno;
+            goto exit;
         }
         
         if (ftruncate(fd, real_size) != 0) {
@@ -381,14 +391,15 @@ static int diff_get_dirtymap(BlockDriverState *bs, uint8_t *buf,
     BDRVDiffState *s = bs->opaque;    
     if (buf == NULL)
         return s->bitmap_size;
-    memcpy(buf, s->dirty_bitmap, s->bitmap_size);
+    memcpy(buf, s->diff_bitmap[generation], s->bitmap_size);
     return s->bitmap_size;
 }
 
-static int diff_get_dirty(BlockDriverState *bs, uint64_t cur_sector)
+static int diff_get_dirty(BlockDriverState *bs, uint64_t cur_sector,
+                          int generation)
 {
     BDRVDiffState *s = bs->opaque;
-    return get_dirty(s, cur_sector);
+    return get_dirty(s, cur_sector, generation);
 }
 
 static BlockDriver bdrv_diff = {

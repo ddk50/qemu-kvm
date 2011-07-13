@@ -248,7 +248,8 @@ void bdrv_set_in_use(BlockDriverState *bs, int in_use);
 int bdrv_in_use(BlockDriverState *bs);
 
 int bdrv_is_enabled_diff_sending(BlockDriverState *bs);
-int bdrv_get_block_dirty(BlockDriverState *bs, uint64_t cur_sector);
+int bdrv_get_block_dirty(BlockDriverState *bs, uint64_t cur_sector,
+                         int generation);
 int bdrv_get_block_dirtymap(BlockDriverState *bs, uint8_t *buf, 
                             int generation);
 

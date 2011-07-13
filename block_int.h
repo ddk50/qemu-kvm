@@ -81,10 +81,13 @@ struct BlockDriver {
     int (*bdrv_merge_requests)(BlockDriverState *bs, BlockRequest* a,
         BlockRequest *b);
 
+    /* 0: Acc, 1: AccDirty */
     int (*bdrv_get_block_dirtymap)(BlockDriverState *bs, uint8_t *buf, 
                                    int generation);
 
-    int (*bdrv_get_block_dirty)(BlockDriverState *bs, uint64_t cur_sector);
+    /* 0: Acc, 1: AccDirty */
+    int (*bdrv_get_block_dirty)(BlockDriverState *bs, uint64_t cur_sector, 
+                                int generation);
 
     const char *protocol_name;
     int (*bdrv_truncate)(BlockDriverState *bs, int64_t offset);
