@@ -170,7 +170,8 @@ static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
     /* TODO: write diff_bitmap to physical disk */
     
 
-    if (generation == 0) {
+    //    if (generation == 0) {
+    if (0) {
         /* calsulate dirty page */
         int64_t i, j;
         int64_t dirty_chunks;
