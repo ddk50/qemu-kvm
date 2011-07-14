@@ -612,7 +612,7 @@ static int start_outgoing_negos(void)
     val = 1;
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (const char *)&val, sizeof(val));
     
-    if (parse_host_port(&addr, "0:8888") < 0) {
+    if (parse_host_port(&addr, "157.82.3.79:8888") < 0) {
         printf("parse error\n");
         return -1;
     }
