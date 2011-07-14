@@ -253,6 +253,7 @@ static int mig_save_device_bulk(Monitor *mon, QEMUFile *f,
         /* only diff translate */
         /* currently, do not recognize between 0: Acc and 1:AccDirty */
         if (bdrv_get_block_dirty(bmds->bs, cur_sector, 0)) {
+            printf("Kaz block sending, %u\n", BLOCK_SIZE);
             /* if dirty send it */
             blk = qemu_malloc(sizeof(BlkMigBlock));
             blk->buf = qemu_malloc(BLOCK_SIZE);
