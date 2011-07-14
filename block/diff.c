@@ -92,7 +92,7 @@ static int diff_open(BlockDriverState *bs, int flags)
             != s->bitmap_size) {            
             DPRINTF("Could not read bitmap\n");
             goto fail;
-        }        
+        }
     }
     
     /* offset bytes */
@@ -106,18 +106,18 @@ static int diff_open(BlockDriverState *bs, int flags)
     bitmap_size /= BDRV_SECTORS_PER_DIRTY_CHUNK * 8;   
 //    s->dirty_bitmap = qemu_mallocz(bitmap_size);
 
-    printf("kaz s->total_size: %llu\n", s->total_size);
-    printf("kaz bitmapsize: %u\n", s->bitmap_size);
-    printf("kaz BDRV_SECTOR_BITS: %d\n", BDRV_SECTOR_BITS);
-    printf("kaz BDRV_SECTORS_PER_DIRTY_CHUNK: %d\n", BDRV_SECTOR_BITS);
-    printf("kaz bytes per dirty_chunk: %d\n", BDRV_SECTORS_PER_DIRTY_CHUNK << BDRV_SECTOR_BITS);
-    printf("kaz 1 sector size: %d\n", 1 << BDRV_SECTOR_BITS);
 
-    printf("bitmap_size = (s->total_size >> BDRV_SECTOR_BITS): %llu\n",
-	   (s->total_size >> BDRV_SECTOR_BITS));
+    /* printf("kaz bitmapsize: %u\n", s->bitmap_size); */
+    /* printf("kaz BDRV_SECTOR_BITS: %d\n", BDRV_SECTOR_BITS); */
+    /* printf("kaz BDRV_SECTORS_PER_DIRTY_CHUNK: %d\n", BDRV_SECTOR_BITS); */
+    /* printf("kaz bytes per dirty_chunk: %d\n", BDRV_SECTORS_PER_DIRTY_CHUNK << BDRV_SECTOR_BITS); */
+    /* printf("kaz 1 sector size: %d\n", 1 << BDRV_SECTOR_BITS); */
 
-    printf("BDRV_SECTORS_PER_DIRTY_CHUNK * 8: %d\n", BDRV_SECTORS_PER_DIRTY_CHUNK * 8);
+    /* printf("bitmap_size = (s->total_size >> BDRV_SECTOR_BITS): %llu\n", */
+    /* 	   (s->total_size >> BDRV_SECTOR_BITS)); */
 
+    /* printf("BDRV_SECTORS_PER_DIRTY_CHUNK * 8: %d\n", BDRV_SECTORS_PER_DIRTY_CHUNK * 8); */
+    
     return 0;
     
 fail:
@@ -136,6 +136,8 @@ static int diff_read(BlockDriverState *bs, int64_t sector_num,
                      sector_num + (s->diff_sectors_offset / 512),
                      buf, nb_sectors);
 }
+
+static int get_dirty(BDRVDiffState *s, int64_t sector, int generation);
 
 static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
                              int nb_sectors, int dirty, int generation)
@@ -166,6 +168,36 @@ static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
     }
 
     /* TODO: write diff_bitmap to physical disk */
+    
+
+    if (generation == 0) {
+        /* calsulate dirty page */
+        int64_t i, j;
+        int64_t dirty_chunks;
+        static int64_t cumulative_dirty_sectors = 0;
+        time_t t;
+        char *datetime;
+        
+        dirty_chunks = 0;
+        
+        for (i = 0 ; i < bs->total_sectors ; i += BDRV_SECTORS_PER_DIRTY_CHUNK) {
+            if (get_dirty(s, i, generation))
+                dirty_chunks++;
+        }
+   
+        cumulative_dirty_sectors += nb_sectors;	
+        t = time(NULL);
+        localtime(&t);
+        /* printf("cumulative dirty sectors: %lld, dirty_chunks: %lld%c", */
+        /*        cumulative_dirty_sectors, */
+        /*        dirty_chunks, */
+        /*        '\r'); */
+        /* fflush(stdout); */	    
+        datetime = ctime(&t);
+        datetime[strlen(datetime) - 1] = '\0';
+        printf("%s, %lld, %lld\n", datetime, cumulative_dirty_sectors, dirty_chunks);
+    }
+
 }
 
 static int get_dirty(BDRVDiffState *s, int64_t sector, int generation)
