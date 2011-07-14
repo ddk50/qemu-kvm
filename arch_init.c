@@ -41,6 +41,7 @@
 #include "net.h"
 #include "gdbstub.h"
 #include "hw/smbios.h"
+#include "bench_timer.h"
 
 #ifdef TARGET_SPARC
 int graphic_width = 1024;
@@ -372,6 +373,8 @@ int ram_load(QEMUFile *f, void *opaque, int version_id)
         return -EINVAL;
     }
 
+    settimer();
+
     do {
         addr = qemu_get_be64(f);
 
@@ -451,6 +454,8 @@ int ram_load(QEMUFile *f, void *opaque, int version_id)
             return -EIO;
         }
     } while (!(flags & RAM_SAVE_FLAG_EOS));
+
+    printf("RAM sending is completed, %lf\n", stoptimer());
 
     return 0;
 }

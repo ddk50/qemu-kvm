@@ -166,6 +166,8 @@ int main(int argc, char **argv)
 
 #include "ui/qemu-spice.h"
 
+#include "bench_timer.h"
+
 //#define DEBUG_NET
 //#define DEBUG_SLIRP
 
@@ -3186,12 +3188,14 @@ int main(int argc, char **argv, char **envp)
     }
 
     if (incoming) {
+        set_migrate_global_timer();        
         int ret = qemu_start_incoming_migration(incoming);
         if (ret < 0) {
             fprintf(stderr, "Migration failed. Exit code %s(%d), exiting.\n",
                     incoming, ret);
             exit(ret);
         }
+        printf("migration whole time, %lf\n", stop_migrate_global_timer());
     } else if (autostart) {
         vm_start();
     }

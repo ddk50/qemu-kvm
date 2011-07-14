@@ -22,6 +22,7 @@
 #include "migration.h"
 #include "blockdev.h"
 #include "qemu_socket.h"
+#include "bench_timer.h"
 #include <assert.h>
 
 #define BLOCK_SIZE (BDRV_SECTORS_PER_DIRTY_CHUNK << BDRV_SECTOR_BITS)
@@ -787,7 +788,9 @@ static int block_load(QEMUFile *f, void *opaque, int version_id)
     uint8_t *buf;
     int64_t total_sectors = 0;
     int nr_sectors;
-
+    
+    settimer();
+    
     do {
         addr = qemu_get_be64(f);
 
@@ -853,6 +856,8 @@ static int block_load(QEMUFile *f, void *opaque, int version_id)
             return -EIO;
         }
     } while (!(flags & BLK_MIG_FLAG_EOS));
+
+    printf("block device sending is completed, %lf\n", stoptimer());
 
     return 0;
 }
