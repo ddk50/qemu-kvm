@@ -2789,11 +2789,11 @@ int bdrv_in_use(BlockDriverState *bs)
 int bdrv_is_enabled_diff_sending(BlockDriverState *bs)
 {
     /* TODO: if diff block device diff sending will be enabled */
-    return 0;
+    return 1;
 }
 
 int bdrv_get_block_dirty(BlockDriverState *bs, uint64_t cur_sector, 
-			 int generation)
+                         int generation)
 {
     BlockDriver *drv = bs->drv;
 
