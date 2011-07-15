@@ -6,6 +6,7 @@
 
 static double g_t1 = 0;
 static double migrate_global_t1 = 0;
+static double blockmigration_global_t1 = 0;
 
 static double gettimeofday_sec(void)
 {
@@ -25,6 +26,17 @@ double stop_migrate_global_timer(void)
 {
     double g_t2 = gettimeofday_sec();
     return g_t2 - migrate_global_t1;
+}
+
+void set_blockmigration_global_timer(void)
+{
+    blockmigration_global_t1 = gettimeofday_sec();
+}
+
+double stop_blockmigration_global_timer(void)
+{
+    double g_t2 = gettimeofday_sec();
+    return g_t2 - blockmigration_global_t1;
 }
 
 void settimer(void)

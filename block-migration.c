@@ -787,9 +787,7 @@ static int block_load(QEMUFile *f, void *opaque, int version_id)
     BlockDriverState *bs, *bs_prev = NULL;
     uint8_t *buf;
     int64_t total_sectors = 0;
-    int nr_sectors;
-    
-    settimer();
+    int nr_sectors;   
     
     do {
         addr = qemu_get_be64(f);
@@ -843,6 +841,10 @@ static int block_load(QEMUFile *f, void *opaque, int version_id)
             }
             printf("Completed %d %%%c", (int)addr,
                    (addr == 100) ? '\n' : '\r');
+            
+            if (addr == 100)
+                printf("block migration is completed, %lf\n", stop_blockmigration_global_timer());
+
             fflush(stdout);
         } else if (flags & BLK_MIG_FLAG_NEGOS) {
             uint64_t banner = 0x123456789ULL;
@@ -856,9 +858,7 @@ static int block_load(QEMUFile *f, void *opaque, int version_id)
             return -EIO;
         }
     } while (!(flags & BLK_MIG_FLAG_EOS));
-
-    printf("block device sending is completed, %lf\n", stoptimer());
-
+    
     return 0;
 }
 

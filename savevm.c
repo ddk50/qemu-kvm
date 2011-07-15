@@ -82,6 +82,7 @@
 #include "migration.h"
 #include "qemu_socket.h"
 #include "qemu-queue.h"
+#include "bench_timer.h"
 
 #define SELF_ANNOUNCE_ROUNDS 5
 
@@ -1807,12 +1808,14 @@ int qemu_loadvm_state(QEMUFile *f)
             le->version_id = version_id;
             QLIST_INSERT_HEAD(&loadvm_handlers, le, entry);
 
+            settimer();
             ret = vmstate_load(f, le->se, le->version_id);
             if (ret < 0) {
                 fprintf(stderr, "qemu: warning: error while loading state for instance 0x%x of device '%s'\n",
                         instance_id, idstr);
                 goto out;
             }
+            printf("%s sending is completed, %lf\n", idstr, stoptimer());
             break;
         case QEMU_VM_SECTION_PART:
         case QEMU_VM_SECTION_END:

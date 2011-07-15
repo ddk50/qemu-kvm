@@ -20,6 +20,7 @@
 #include "qemu_socket.h"
 #include "block-migration.h"
 #include "qemu-objects.h"
+#include "bench_timer.h"
 
 //#define DEBUG_MIGRATION
 
@@ -63,6 +64,9 @@ int qemu_start_incoming_migration(const char *uri)
 
 void process_incoming_migration(QEMUFile *f)
 {
+    set_migrate_global_timer();
+    set_blockmigration_global_timer();
+    
     if (qemu_loadvm_state(f) < 0) {
         fprintf(stderr, "load of migration failed\n");
         exit(0);
@@ -71,6 +75,7 @@ void process_incoming_migration(QEMUFile *f)
     DPRINTF("successfully loaded vm state\n");
 
     incoming_expected = false;
+    printf("migration whole time, %lf\n", stop_migrate_global_timer());
 
     if (autostart)
         vm_start();
