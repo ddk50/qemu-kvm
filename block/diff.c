@@ -122,8 +122,8 @@ static int diff_open(BlockDriverState *bs, int flags)
     
 fail:
     for (i = 0 ; i < s->bitmap_count ; i++)
-        qemu_free(s->diff_bitmap[i]);    
-    qemu_free(s->diff_bitmap);    
+        qemu_free(s->diff_bitmap[i]);
+    qemu_free(s->diff_bitmap);
     return -1;
 }
 
