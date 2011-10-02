@@ -32,7 +32,7 @@ typedef struct BDRVDiffState {
 #define HEADER_VERSION 0x00020000
 #define HEADER_SIZE sizeof(DiffHeader)
 
-//#define DEBUG_DIFF_FILE
+#define DEBUG_DIFF_FILE
 
 #ifdef DEBUG_DIFF_FILE
 #define DPRINTF(fmt, ...) \
@@ -44,12 +44,16 @@ typedef struct BDRVDiffState {
 
 static int diff_probe(const uint8_t *buf, int buf_size, const char *filename)
 {
-//    const struct bochs_header *diff = (const void *)buf;
+    const struct diff_header *diff = (const void *)buf;
     
-    /* if (buf_size < HEADER_SIZE) */
-    /*     return 100; */
-
-    return 100;
+    if ((buf_size >= HEADER_SIZE) &&
+        (strcmp(diff->magic, HEADER_MAGIC) == 0) &&
+        (diff->version == HEADER_VERSION)) {        
+        DPRINTF("This is diff format\n");
+        return 100;    
+    } else {
+        return 0;
+    }
 }
 
 static int diff_open(BlockDriverState *bs, int flags)
@@ -130,8 +134,7 @@ fail:
 static int diff_read(BlockDriverState *bs, int64_t sector_num,
                      uint8_t *buf, int nb_sectors)
 {
-    BDRVDiffState *s = bs->opaque;    
-    DPRINTF("read: %lld %s\n", sector_num, __FUNCTION__);    
+    BDRVDiffState *s = bs->opaque;
     return bdrv_read(bs->file,
                      sector_num + (s->diff_sectors_offset / 512),
                      buf, nb_sectors);
@@ -223,8 +226,6 @@ static int diff_write(BlockDriverState *bs, int64_t sector_num,
     
     set_dirty_bitmap(bs, sector_num, nb_sectors, 1, 0);    
     set_dirty_bitmap(bs, sector_num, nb_sectors, 1, 1);
-
-    DPRINTF("write: %lld %s\n", sector_num, __FUNCTION__);
     
     return bdrv_write(bs->file, 
                       sector_num + (s->diff_sectors_offset / 512), 
