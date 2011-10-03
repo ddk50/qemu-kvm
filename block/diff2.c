@@ -24,14 +24,14 @@ typedef struct BDRVDiff2State {
     uint64_t genmap_size;
     uint64_t bitmap_size;
     unsigned long *bitmap;
-    unsigned long *genmap;
+    unsigned long *genmap;    
     uint64_t diff2_sectors_offset;
 } BDRVDiff2State;
 
 #define HEADER_MAGIC    "Diff2 Virtual HD Image 2"
 #define HEADER_VERSION  0x00020002
 #define HEADER_SIZE     sizeof(Diff2Header)
-#define GENERATION_BITS 8
+#define GENERATION_BITS 8 /* must be 1 byte */
 
 #define DEBUG_DIFF2_FILE
 
@@ -42,6 +42,11 @@ typedef struct BDRVDiff2State {
 #define DPRINTF(fmt, ...) \
     do { } while (0)
 #endif
+
+static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
+                             int nb_sectors, int dirty, int generation);
+
+static int get_dirty(BDRVDiff2State *s, int64_t sector, int generation);
 
 static int diff2_probe(const uint8_t *buf, int buf_size, const char *filename)
 {
@@ -62,11 +67,8 @@ static int diff2_probe(const uint8_t *buf, int buf_size, const char *filename)
 static int diff2_open(BlockDriverState *bs, int flags)
 {
     struct diff2_header diff2;
-    int i;    
     uint32_t pos;
-    BDRVDiff2State *s = bs->opaque;
-    
-    DPRINTF("%s\n", __FUNCTION__);
+    BDRVDiff2State *s = bs->opaque;   
 
     if (bdrv_pread(bs->file, 0, &diff2, sizeof(diff2)) 
         != sizeof(diff2)) {
@@ -79,6 +81,9 @@ static int diff2_open(BlockDriverState *bs, int flags)
         goto fail;
     }
 
+    /* Currently, generation bits only supports 8 */
+    assert(GENERATION_BITS == 8);
+    
     /* read */
     s->cur_gen     = diff2.cur_gen;
     s->mom_sign    = diff2.mom_sign;
@@ -96,14 +101,12 @@ static int diff2_open(BlockDriverState *bs, int flags)
      * read out genmap
      */
     s->genmap = qemu_mallocz(s->genmap_size);
-    DPRINTF("s->genmap: %p\n", s->genmap);
     assert(s->genmap != NULL);
 
     /*
      * read out bitmap
      */
     s->bitmap = qemu_mallocz(s->bitmap_size);
-    DPRINTF("s->bitmap: %p\n", s->bitmap);
     assert(s->bitmap != NULL);
 
     
@@ -146,21 +149,144 @@ static int diff2_read(BlockDriverState *bs, int64_t sector_num,
                      uint8_t *buf, int nb_sectors)
 {
     BDRVDiff2State *s = bs->opaque;
-    DPRINTF("=============oh shit!!!==============");
     return bdrv_read(bs->file,
                      sector_num + (s->diff2_sectors_offset / 512),
                      buf, nb_sectors);    
 }
 
+static void debug_print_genmap(BlockDriverState *bs)
+{
+    BDRVDiff2State *s = bs->opaque;
+    uint64_t start, end, i;
+    unsigned long idx, bit;
+    unsigned long gen_val, gen_ridx, gen_nidx;
+    uint64_t total_bits;
+    unsigned long generation;
+    unsigned long mask;
+    
+    start = 0;    
+    end = bs->total_sectors;
+    
+    for (i = start ; i < end ; i++) {
+        idx = start / (sizeof(unsigned long) * 8);
+        bit = start % (sizeof(unsigned long) * 8);
+
+        total_bits = (idx * (sizeof(unsigned long) * 8)) + bit;
+        gen_ridx = total_bits / ((sizeof(unsigned long) * 8) / GENERATION_BITS);
+        gen_nidx = total_bits % ((sizeof(unsigned long) * 8) / GENERATION_BITS);
+        gen_val = s->genmap[gen_ridx];
+
+        mask = (1UL << (GENERATION_BITS + 1)) - 1;
+        generation = (gen_val >> (gen_nidx * GENERATION_BITS)) & mask;
+        if (gen_val)
+            printf("%llu [bits] -> %lu [generation]\n", total_bits, generation);
+    }
+}
+
+static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
+                             int nb_sectors, int dirty, int generation)
+{
+    BDRVDiff2State *s = bs->opaque;
+    int64_t start, end;
+    unsigned long val, idx, bit;
+    uint64_t total_bits;
+    unsigned long gen_val, gen_ridx, gen_nidx;
+    unsigned long mask;
+    
+    /* dirty flag must be 1 */
+    assert(dirty == 1);
+
+    start = sector_num / BDRV_SECTORS_PER_DIRTY_CHUNK;
+    end = (sector_num + nb_sectors - 1) / BDRV_SECTORS_PER_DIRTY_CHUNK;
+
+    for (; start <= end; start++) {
+        
+        idx = start / (sizeof(unsigned long) * 8);
+        bit = start % (sizeof(unsigned long) * 8);
+        val = s->bitmap[idx];
+        
+        total_bits = (idx * (sizeof(unsigned long) * 8)) + bit;
+        gen_ridx = total_bits / ((sizeof(unsigned long) * 8) / GENERATION_BITS);
+        gen_nidx = total_bits % ((sizeof(unsigned long) * 8) / GENERATION_BITS);
+        gen_val = s->genmap[gen_ridx];
+            
+        if (dirty) {
+            if (!(val & (1UL << bit))) {
+                val |= 1UL << bit;
+            }
+            mask = (1UL << (GENERATION_BITS + 1)) - 1;
+            gen_val |= (generation & mask) << (gen_nidx * GENERATION_BITS);
+            s->genmap[gen_ridx] = gen_val;
+            DPRINTF("bitmap[%llu] -> write gen: 0x%08lx\n", 
+                    total_bits, 
+                    s->genmap[gen_ridx]);
+        } else {
+            if (val & (1UL << bit)) {
+                val &= ~(1UL << bit);
+            }
+        }
+        s->bitmap[idx] = val;
+    }
+
+    /* TODO: write diff_bitmap to physical disk */
+    
+
+    //    if (generation == 0) {
+    if (0) {
+        /* calsulate dirty page */
+        int64_t i;
+        int64_t dirty_chunks;
+        static int64_t cumulative_dirty_sectors = 0;
+        time_t t;
+        char *datetime;
+        
+        dirty_chunks = 0;
+        
+        for (i = 0 ; i < bs->total_sectors ; i += BDRV_SECTORS_PER_DIRTY_CHUNK) {
+            if (get_dirty(s, i, generation))
+                dirty_chunks++;
+        }
+   
+        cumulative_dirty_sectors += nb_sectors;	
+        t = time(NULL);
+        localtime(&t);
+        /* printf("cumulative dirty sectors: %lld, dirty_chunks: %lld%c", */
+        /*        cumulative_dirty_sectors, */
+        /*        dirty_chunks, */
+        /*        '\r'); */
+        /* fflush(stdout); */	    
+        datetime = ctime(&t);
+        datetime[strlen(datetime) - 1] = '\0';
+        printf("%s, %lld, %lld\n", datetime, cumulative_dirty_sectors, dirty_chunks);
+    }
+    
+    /* check bitmap for generation */
+    /* debug_print_genmap(bs); */
+    
+}
+
 static int get_dirty(BDRVDiff2State *s, int64_t sector, int generation)
 {
-    return 0;
+    int64_t chunk = sector / (int64_t)BDRV_SECTORS_PER_DIRTY_CHUNK;
+
+    assert(s->total_size != 0);
+
+    if (s->bitmap && (sector << BDRV_SECTOR_BITS) < s->total_size) {
+        return !!(s->bitmap[chunk / (sizeof(unsigned long) * 8)] &
+                  (1UL << (chunk % (sizeof(unsigned long) * 8))));
+    } else {
+        return 0;
+    }
 }
 
 static int diff2_write(BlockDriverState *bs, int64_t sector_num,
                        const uint8_t *buf, int nb_sectors)
 {
     BDRVDiff2State *s = bs->opaque;    
+
+    /* write bitmap */
+    set_dirty_bitmap(bs, sector_num, nb_sectors, 1, 1);    
+    
     return bdrv_write(bs->file, 
                       sector_num + (s->diff2_sectors_offset / 512), 
                       buf, nb_sectors);
@@ -180,7 +306,11 @@ static BlockDriverAIOCB *diff2_aio_writev(BlockDriverState *bs,
     int64_t sector_num, QEMUIOVector *qiov, int nb_sectors,
     BlockDriverCompletionFunc *cb, void *opaque)
 {
-    BDRVDiff2State *s = bs->opaque;    
+    BDRVDiff2State *s = bs->opaque; 
+
+    /* write bitmap */
+    set_dirty_bitmap(bs, sector_num, nb_sectors, 1, 1);
+
     return bdrv_aio_writev(bs->file,
                            sector_num + (s->diff2_sectors_offset / 512), 
                            qiov, nb_sectors, cb, opaque);

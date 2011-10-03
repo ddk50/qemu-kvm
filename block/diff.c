@@ -201,7 +201,6 @@ static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
         datetime[strlen(datetime) - 1] = '\0';
         printf("%s, %lld, %lld\n", datetime, cumulative_dirty_sectors, dirty_chunks);
     }
-
 }
 
 static int get_dirty(BDRVDiffState *s, int64_t sector, int generation)
