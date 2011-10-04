@@ -33,6 +33,7 @@ struct MigrationState
     void (*release)(MigrationState *s);
     int blk;
     int shared;
+    int diff;
 };
 
 typedef struct FdMigrationState FdMigrationState;
@@ -87,6 +88,7 @@ MigrationState *tcp_start_outgoing_migration(Monitor *mon,
 					     int64_t bandwidth_limit,
 					     int detach,
 					     int blk,
+					     int diff,
 					     int inc);
 
 int unix_start_incoming_migration(const char *path);

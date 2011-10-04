@@ -754,8 +754,8 @@ ETEXI
 
     {
         .name       = "migrate",
-        .args_type  = "detach:-d,blk:-b,inc:-i,uri:s",
-        .params     = "[-d] [-b] [-i] uri",
+        .args_type  = "detach:-d,blk:-b,diff:-c,inc:-i,uri:s",
+        .params     = "[-d] [-b] [-c] [-i] uri",
         .help       = "migrate to URI (using -d to not wait for completion)"
 		      "\n\t\t\t -b for migration without shared storage with"
 		      " full copy of disk\n\t\t\t -i for migration without "
@@ -767,11 +767,12 @@ ETEXI
 
 
 STEXI
-@item migrate [-d] [-b] [-i] @var{uri}
+@item migrate [-d] [-b] [-c] [-i] @var{uri}
 @findex migrate
 Migrate to @var{uri} (using -d to not wait for completion).
 	-b for migration with full copy of disk
 	-i for migration with incremental copy of disk (base image is shared)
+	-c for migration with delta copy
 ETEXI
 
     {

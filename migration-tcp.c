@@ -87,6 +87,7 @@ MigrationState *tcp_start_outgoing_migration(Monitor *mon,
                                              int64_t bandwidth_limit,
                                              int detach,
                                              int blk,
+					     int diff,
                                              int inc)
 {
     struct sockaddr_in addr;
@@ -109,6 +110,7 @@ MigrationState *tcp_start_outgoing_migration(Monitor *mon,
 
     s->mig_state.blk = blk;
     s->mig_state.shared = inc;
+    s->mig_state.diff = diff;
 
     s->state = MIG_STATE_ACTIVE;
     s->mon = NULL;

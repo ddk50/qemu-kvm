@@ -87,6 +87,7 @@ int do_migrate(Monitor *mon, const QDict *qdict, QObject **ret_data)
     const char *p;
     int detach = qdict_get_try_bool(qdict, "detach", 0);
     int blk = qdict_get_try_bool(qdict, "blk", 0);
+    int diff = qdict_get_try_bool(qdict, "diff", 0);
     int inc = qdict_get_try_bool(qdict, "inc", 0);
     const char *uri = qdict_get_str(qdict, "uri");
 
@@ -102,7 +103,7 @@ int do_migrate(Monitor *mon, const QDict *qdict, QObject **ret_data)
 
     if (strstart(uri, "tcp:", &p)) {
         s = tcp_start_outgoing_migration(mon, p, max_throttle, detach,
-                                         blk, inc);
+                                         blk, diff, inc);
 #if !defined(WIN32)
     } else if (strstart(uri, "exec:", &p)) {
         s = exec_start_outgoing_migration(mon, p, max_throttle, detach,

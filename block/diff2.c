@@ -1,4 +1,6 @@
 
+#include <uuid/uuid.h>
+
 #include "qemu-common.h"
 #include "block_int.h"
 #include "module.h"
@@ -9,7 +11,7 @@ typedef struct diff2_header {
     uint32_t header_size;
     uint32_t sector;
     uint64_t total_size;
-    uint64_t mom_sign;
+    char mom_sign[37];
     uint32_t cur_gen;
     uint64_t genmap_size;
     uint32_t bitmap_size;    
@@ -18,7 +20,7 @@ typedef struct diff2_header {
 
 typedef struct BDRVDiff2State {
     uint32_t cur_gen;
-    uint64_t mom_sign;
+    char mom_sign[37];
     uint32_t sector;
     uint64_t total_size;
     uint64_t genmap_size;
@@ -29,7 +31,7 @@ typedef struct BDRVDiff2State {
 } BDRVDiff2State;
 
 #define HEADER_MAGIC    "Diff2 Virtual HD Image 2"
-#define HEADER_VERSION  0x00020002
+#define HEADER_VERSION  0x00020003
 #define HEADER_SIZE     sizeof(Diff2Header)
 #define GENERATION_BITS 8 /* must be 1 byte */
 
@@ -85,8 +87,8 @@ static int diff2_open(BlockDriverState *bs, int flags)
     assert(GENERATION_BITS == 8);
     
     /* read */
+    memcpy(&s->mom_sign, &diff2.mom_sign, 37);
     s->cur_gen     = diff2.cur_gen;
-    s->mom_sign    = diff2.mom_sign;
     s->sector      = diff2.sector;
     s->total_size  = diff2.total_size;
     s->bitmap_size = diff2.bitmap_size;
@@ -217,9 +219,9 @@ static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
             mask = (1UL << (GENERATION_BITS + 1)) - 1;
             gen_val |= (generation & mask) << (gen_nidx * GENERATION_BITS);
             s->genmap[gen_ridx] = gen_val;
-            DPRINTF("bitmap[%llu] -> write gen: 0x%08lx\n", 
-                    total_bits, 
-                    s->genmap[gen_ridx]);
+            /* DPRINTF("bitmap[%llu] -> write gen: 0x%08lx\n", */
+            /*         total_bits, */
+            /*         s->genmap[gen_ridx]); */
         } else {
             if (val & (1UL << bit)) {
                 val &= ~(1UL << bit);
@@ -394,6 +396,7 @@ static int diff2_create(const char *filename, QEMUOptionParameter *options)
     unsigned long *bitmap = NULL;
     unsigned long *genmap = NULL;
     Diff2Header header;
+    uuid_t u;
     
     /* Read out options */
     while (options && options->name) {
@@ -406,11 +409,17 @@ static int diff2_create(const char *filename, QEMUOptionParameter *options)
     memset(&header, 0, sizeof(header));
 
     memcpy(header.magic, HEADER_MAGIC, sizeof(HEADER_MAGIC));
+
+    uuid_generate(u);
+    uuid_unparse(u, header.mom_sign); /* generate mom sign */
+    DPRINTF("mom_sign: %s\n", header.mom_sign);
+
+    assert(strcmp(header.mom_sign, "00000000-0000-0000-0000-000000000000") != 0);
+    
     header.version      = HEADER_VERSION;
     header.header_size  = HEADER_SIZE;
     header.sector       = 512;
     header.total_size   = total_size; /* this is byte */
-    header.mom_sign     = 0; /* mom sign, must be UUID */
     header.cur_gen      = 0; /* first generation, this is zero */
 
     bitmap_size = (total_size >> BDRV_SECTOR_BITS) +
