@@ -213,7 +213,7 @@ struct BlockDriverState {
 };
 
 #define CHANGE_MEDIA	0x01
-#define CHANGE_SIZE	0x02
+#define CHANGE_SIZE	    0x02
 
 struct BlockDriverAIOCB {
     AIOPool *pool;
@@ -234,6 +234,14 @@ void *qemu_blockalign(BlockDriverState *bs, size_t size);
 #ifdef _WIN32
 int is_windows_drive(const char *filename);
 #endif
+
+#define DIFF_STATE_MAGIC_NUM 0x12345678
+
+struct DiffState {
+    uint32_t magic_number;
+    char format_name[32];
+    char mom_sign[37];
+};
 
 typedef struct BlockConf {
     BlockDriverState *bs;

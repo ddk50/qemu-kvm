@@ -30,6 +30,7 @@ typedef struct BDRVDiff2State {
     uint64_t diff2_sectors_offset;
 } BDRVDiff2State;
 
+#define FORNAME_NAME    "diff2"
 #define HEADER_MAGIC    "Diff2 Virtual HD Image 2"
 #define HEADER_VERSION  0x00020003
 #define HEADER_SIZE     sizeof(Diff2Header)
@@ -515,8 +516,17 @@ static int diff2_get_dirty(BlockDriverState *bs, uint64_t cur_sector,
     return get_dirty(s, cur_sector, generation);
 }
 
+static int diff2_get_info(BlockDriverState *bs, BlockDriverInfo *bdi)
+{    
+    BDRVDiff2State *s = bs->opaque;
+    bdi->enable_diff_sending = 1;
+    memcpy(bdi->mom_sign, s->mom_sign, sizeof(s->mom_sign));
+    memcpy(bdi->format_name, FORNAME_NAME, sizeof(FORNAME_NAME));
+    return 0;
+}
+
 static BlockDriver bdrv_diff2 = {
-    .format_name        = "diff2",
+    .format_name        = FORNAME_NAME,
 
     /* It's really 0, but we need to make qemu_malloc() happy */
     .instance_size      = sizeof(BDRVDiff2State),
@@ -547,6 +557,8 @@ static BlockDriver bdrv_diff2 = {
 
     .bdrv_get_block_dirtymap = diff2_get_dirtymap,
     .bdrv_get_block_dirty    = diff2_get_dirty,
+
+    .bdrv_get_info      = diff2_get_info,
 };
 
 static void bdrv_diff2_init(void)

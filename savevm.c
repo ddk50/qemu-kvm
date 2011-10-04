@@ -1479,7 +1479,7 @@ bool qemu_savevm_state_blocked(Monitor *mon)
 }
 
 int qemu_savevm_state_begin(Monitor *mon, QEMUFile *f, int blk_enable,
-                            int shared)
+                            int shared, int diff)
 {
     SaveStateEntry *se;
 
@@ -1487,7 +1487,7 @@ int qemu_savevm_state_begin(Monitor *mon, QEMUFile *f, int blk_enable,
         if(se->set_params == NULL) {
             continue;
 	}
-	se->set_params(blk_enable, shared, se->opaque);
+	se->set_params(blk_enable, shared, diff, se->opaque);
     }
     
     qemu_put_be32(f, QEMU_VM_FILE_MAGIC);
@@ -1626,7 +1626,7 @@ static int qemu_savevm_state(Monitor *mon, QEMUFile *f)
         goto out;
     }
 
-    ret = qemu_savevm_state_begin(mon, f, 0, 0);
+    ret = qemu_savevm_state_begin(mon, f, 0, 0, 0);
     if (ret < 0)
         goto out;
 

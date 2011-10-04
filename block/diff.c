@@ -429,7 +429,7 @@ static int diff_get_dirtymap(BlockDriverState *bs, uint8_t *buf,
 }
 
 static int diff_get_dirty(BlockDriverState *bs, uint64_t cur_sector,
-                          int generation)
+                           int generation)
 {
     BDRVDiffState *s = bs->opaque;
     return get_dirty(s, cur_sector, generation);

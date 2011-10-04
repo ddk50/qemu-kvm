@@ -380,7 +380,7 @@ void migrate_fd_connect(FdMigrationState *s)
 
     s->file = qemu_fopen_ops_buffered(s,
                                       s->bandwidth_limit,
-				      migrate_fd_get_buffer,
+                                      migrate_fd_get_buffer,
                                       migrate_fd_put_buffer,
                                       migrate_fd_put_ready,
                                       migrate_fd_wait_for_unfreeze,
@@ -388,7 +388,8 @@ void migrate_fd_connect(FdMigrationState *s)
 
     DPRINTF("beginning savevm\n");
     ret = qemu_savevm_state_begin(s->mon, s->file, s->mig_state.blk,
-                                  s->mig_state.shared);
+                                  s->mig_state.shared, 
+                                  s->mig_state.diff);
     if (ret < 0) {
         DPRINTF("failed, %d\n", ret);
         migrate_fd_error(s);

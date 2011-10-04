@@ -73,6 +73,7 @@ typedef struct BlkMigBlock {
 typedef struct BlkMigState {
     int blk_enable;
     int shared_base;
+    int diff_enable;
     QSIMPLEQ_HEAD(bmds_list, BlkMigDevState) bmds_list;
     QSIMPLEQ_HEAD(blk_list, BlkMigBlock) blk_list;
     int submitted;
@@ -207,8 +208,6 @@ static void blk_mig_read_cb(void *opaque, int ret)
 
     add_avg_read_time(blk->time);
 
-    //    printf("blk->sector: %lld, blk->nr_sectors: %d\n", blk->sector, blk->nr_sectors);
-
     QSIMPLEQ_INSERT_TAIL(&block_mig_state.blk_list, blk, entry);
     bmds_set_aio_inflight(blk->bmds, blk->sector, blk->nr_sectors, 0);
 
@@ -251,7 +250,6 @@ static int mig_save_device_bulk(Monitor *mon, QEMUFile *f,
     }
 
     if (bdrv_is_enabled_diff_sending(bmds->bs)) {
-        /* only diff translate */
         /* Currently, do not recognize between 0: Acc and 1:AccDirty */
         if (bdrv_get_block_dirty(bmds->bs, cur_sector, 0)) {            
             printf("Kaz block sending, %u\n", BLOCK_SIZE);
@@ -599,7 +597,7 @@ static void blk_mig_cleanup(Monitor *mon)
 static int start_outgoing_negos(void)
 {
     struct sockaddr_in addr;
-    uint64_t banner = 0ULL;
+    struct DiffState banner;
     int fd;
     int val;
     int ret;
@@ -614,11 +612,10 @@ static int start_outgoing_negos(void)
     val = 1;
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (const char *)&val, sizeof(val));
     
-    if (parse_host_port(&addr, "157.82.3.79:8888") < 0) {
+    if (parse_host_port(&addr, "127.0.0.1:8888") < 0) {
         printf("parse error\n");
         return -1;
-    }
-    
+    }    
     
     do {
         ret = connect(fd, (struct sockaddr *)&addr, sizeof(addr));
@@ -629,23 +626,32 @@ static int start_outgoing_negos(void)
     
     printf("recving...");
     recv(fd, &banner, sizeof(banner), 0);
-    printf("----banner: 0x%08llx\n", banner);
+    printf("---Receive Diff State\n");
+    printf("  magic_number: %d\n", banner.magic_number);
+    printf("  format_name: %s\n", banner.format_name);
+    printf("  header.mom_sign: %s\n", banner.mom_sign);
 
     close(fd);
 
     return 1;
 }
 
-static int start_incoming_negos(void)
+static int start_incoming_negos(BlockDriverState *bs)
 {
+    BlockDriver *drv = bs->drv;
+    BlockDriverInfo bdi;
     struct sockaddr_in addr;
     socklen_t addrlen = sizeof(addr);
-    uint64_t banner = 0x123456789ULL;
     int fd;
     int val;
     int newfd;
     static int already_execute = 0;
     int i = 0;
+    struct DiffState header = {
+        .magic_number = 0x12345678,
+        .format_name  = "diff2",
+        .mom_sign     = "8cc07c3f-9793-410d-af78-76c3c5c1b15d", 
+    };
 
     if (already_execute)
         return 1;
@@ -673,9 +679,20 @@ static int start_incoming_negos(void)
     do {
         newfd = qemu_accept(fd, (struct sockaddr *)&addr, &addrlen);
     } while (newfd == -1 && socket_error() == EINTR);
-    
-    printf("sending...");
-    send(newfd, &banner, sizeof(banner), 0);
+
+    /* bdrv_get_info(bs, &bdi); */
+    /* memset(&header, 0, sizeof(header)); */
+
+    /* if (bdi.enable_diff_sending) { */
+    /*     header.magic_number = DIFF_STATE_MAGIC_NUM; */
+    /*     memcpy(&header.format_name, drv->format_name,  */
+    /*            sizeof(header.format_name));         */
+    /*     memcpy(&header.mom_sign, bdi.mom_sign,  */
+    /*            sizeof(header.mom_sign)); */
+    /* } */
+
+    printf("sending header ... ");
+    send(newfd, &header, sizeof(header), 0);
     printf("end\n");
     
     close(newfd);
@@ -709,12 +726,14 @@ static int block_save_live(Monitor *mon, QEMUFile *f, int stage, void *opaque)
         /* start track dirty blocks */
         set_dirty_tracking(1);
         
-        /* start negos */
-        for (i = 0 ; i < 5000 ; i++)
+        if (block_mig_state.diff_enable) {
+            /* start negos */
             qemu_put_be64(f, BLK_MIG_FLAG_NEGOS);
-        
-        if (start_outgoing_negos() < 0)
-            abort();
+            qemu_fflush(f);
+            
+            if (start_outgoing_negos() < 0)
+                abort();
+        }
     }
 
     flush_blks(f);
@@ -847,9 +866,9 @@ static int block_load(QEMUFile *f, void *opaque, int version_id)
 
             fflush(stdout);
         } else if (flags & BLK_MIG_FLAG_NEGOS) {
-            uint64_t banner = 0x123456789ULL;
-            if (start_incoming_negos() < 0)
+            if (start_incoming_negos(bs) < 0)
                 abort();
+            abort(); // for test;
         } else if (!(flags & BLK_MIG_FLAG_EOS)) {
             fprintf(stderr, "Unknown flags\n");
             return -EINVAL;
@@ -862,10 +881,12 @@ static int block_load(QEMUFile *f, void *opaque, int version_id)
     return 0;
 }
 
-static void block_set_params(int blk_enable, int shared_base, void *opaque)
+static void block_set_params(int blk_enable, int shared_base, 
+                             int diff_enable, void *opaque)
 {
     block_mig_state.blk_enable = blk_enable;
     block_mig_state.shared_base = shared_base;
+    block_mig_state.diff_enable = diff_enable;
 
     /* shared base means that blk_enable = 1 */
     block_mig_state.blk_enable |= shared_base;

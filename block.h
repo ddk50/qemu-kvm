@@ -14,6 +14,9 @@ typedef struct BlockDriverInfo {
     int cluster_size;
     /* offset at which the VM state can be saved (0 if not possible) */
     int64_t vm_state_offset;
+    int enable_diff_sending;
+    char mom_sign[37];
+    char format_name[32];
 } BlockDriverInfo;
 
 typedef struct QEMUSnapshotInfo {
