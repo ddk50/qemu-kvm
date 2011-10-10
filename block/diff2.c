@@ -1,4 +1,26 @@
-
+/*
+ * Block driver for the diff2 format
+ *
+ * Copyright (c) 2011 Kazushi Takahashi
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ */
 #include <uuid/uuid.h>
 
 #include "qemu-common.h"
@@ -19,7 +41,6 @@ typedef struct diff2_header {
 } Diff2Header;
 
 typedef struct BDRVDiff2State {
-    uint32_t cur_gen;
     char mom_sign[37];
     uint32_t sector;
     uint64_t total_size;
@@ -27,6 +48,7 @@ typedef struct BDRVDiff2State {
     uint64_t bitmap_size;
     unsigned long *bitmap;
     unsigned long *genmap;    
+    uint32_t cur_gen;
     uint64_t diff2_sectors_offset;
 } BDRVDiff2State;
 
@@ -47,9 +69,9 @@ typedef struct BDRVDiff2State {
 #endif
 
 static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
-                             int nb_sectors, int dirty, int generation);
+                             int nb_sectors, int dirty, int cur_gen);
 
-static int get_dirty(BDRVDiff2State *s, int64_t sector, int generation);
+static int get_dirty(BDRVDiff2State *s, int64_t sector, int dst_gen_num);
 
 static int diff2_probe(const uint8_t *buf, int buf_size, const char *filename)
 {
@@ -132,8 +154,8 @@ static int diff2_open(BlockDriverState *bs, int flags)
      * 512 bytes align 
      */
     s->diff2_sectors_offset = (((s->bitmap_size + s->genmap_size) 
-                               + sizeof(struct diff2_header))
-                              + 511) & ~511;
+                                + sizeof(struct diff2_header))
+                               + 511) & ~511;
 
     DPRINTF("diff2_sectors_offset: %llu\n", s->diff2_sectors_offset);
     DPRINTF("bitmap_size: %llu \n", s->bitmap_size);
@@ -187,7 +209,7 @@ static void debug_print_genmap(BlockDriverState *bs)
 }
 
 static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
-                             int nb_sectors, int dirty, int generation)
+                             int nb_sectors, int dirty, int cur_gen)
 {
     BDRVDiff2State *s = bs->opaque;
     int64_t start, end;
@@ -218,7 +240,7 @@ static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
                 val |= 1UL << bit;
             }
             mask = (1UL << (GENERATION_BITS + 1)) - 1;
-            gen_val |= (generation & mask) << (gen_nidx * GENERATION_BITS);
+            gen_val |= (cur_gen & mask) << (gen_nidx * GENERATION_BITS);
             s->genmap[gen_ridx] = gen_val;
             /* DPRINTF("bitmap[%llu] -> write gen: 0x%08lx\n", */
             /*         total_bits, */
@@ -234,7 +256,7 @@ static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
     /* TODO: write diff_bitmap to physical disk */
     
 
-    //    if (generation == 0) {
+    //    if (cur_gen == 0) {
     if (0) {
         /* calsulate dirty page */
         int64_t i;
@@ -246,7 +268,7 @@ static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
         dirty_chunks = 0;
         
         for (i = 0 ; i < bs->total_sectors ; i += BDRV_SECTORS_PER_DIRTY_CHUNK) {
-            if (get_dirty(s, i, generation))
+            if (get_dirty(s, i, cur_gen))
                 dirty_chunks++;
         }
    
@@ -268,15 +290,35 @@ static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
     
 }
 
-static int get_dirty(BDRVDiff2State *s, int64_t sector, int generation)
-{
+static int get_dirty(BDRVDiff2State *s, int64_t sector, int dst_gen_num)
+{    
     int64_t chunk = sector / (int64_t)BDRV_SECTORS_PER_DIRTY_CHUNK;
+    unsigned long gen_val, gen_ridx, gen_nidx;
+    unsigned long mask;
+    uint64_t total_bits;
 
     assert(s->total_size != 0);
+    assert(s->bitmap != NULL);
+
+    total_bits = (chunk * sizeof(unsigned long) * 8) + 
+                 (chunk % (sizeof(unsigned long) * 8));
 
     if (s->bitmap && (sector << BDRV_SECTOR_BITS) < s->total_size) {
-        return !!(s->bitmap[chunk / (sizeof(unsigned long) * 8)] &
-                  (1UL << (chunk % (sizeof(unsigned long) * 8))));
+
+        gen_ridx = total_bits / ((sizeof(unsigned long) * 8) / GENERATION_BITS);
+        gen_nidx = total_bits % ((sizeof(unsigned long) * 8) / GENERATION_BITS);
+        gen_val = s->genmap[gen_ridx];
+        
+        mask = (1UL << (GENERATION_BITS + 1)) - 1;
+        gen_val >>= (gen_nidx * GENERATION_BITS);
+        gen_val &= mask;
+
+        if (gen_val <= dst_gen_num) {
+            return 0;
+        } else {
+            return !!(s->bitmap[chunk / (sizeof(unsigned long) * 8)] &
+                      (1UL << (chunk % (sizeof(unsigned long) * 8))));    
+        }
     } else {
         return 0;
     }
@@ -285,10 +327,10 @@ static int get_dirty(BDRVDiff2State *s, int64_t sector, int generation)
 static int diff2_write(BlockDriverState *bs, int64_t sector_num,
                        const uint8_t *buf, int nb_sectors)
 {
-    BDRVDiff2State *s = bs->opaque;    
+    BDRVDiff2State *s = bs->opaque;
 
     /* write bitmap */
-    set_dirty_bitmap(bs, sector_num, nb_sectors, 1, 1);    
+    set_dirty_bitmap(bs, sector_num, nb_sectors, 1, s->cur_gen);
     
     return bdrv_write(bs->file, 
                       sector_num + (s->diff2_sectors_offset / 512), 
@@ -312,7 +354,7 @@ static BlockDriverAIOCB *diff2_aio_writev(BlockDriverState *bs,
     BDRVDiff2State *s = bs->opaque; 
 
     /* write bitmap */
-    set_dirty_bitmap(bs, sector_num, nb_sectors, 1, 1);
+    set_dirty_bitmap(bs, sector_num, nb_sectors, 1, s->cur_gen);
 
     return bdrv_aio_writev(bs->file,
                            sector_num + (s->diff2_sectors_offset / 512), 
@@ -449,7 +491,7 @@ static int diff2_create(const char *filename, QEMUOptionParameter *options)
     if (fd < 0) {
         result = -errno;
     } else {
-
+        
         /* first, write header */
         if (qemu_write_full(fd, &header, sizeof(header))
             != sizeof(header)) {
@@ -503,23 +545,24 @@ static int diff2_has_zero_init(BlockDriverState *bs)
 }
 
 static int diff2_get_dirtymap(BlockDriverState *bs, uint8_t *buf, 
-                              int generation)
+                              int dst_gen_num)
 {
-    BDRVDiff2State *s = bs->opaque;    
+    BDRVDiff2State *s = bs->opaque;
     return s->bitmap_size;
 }
 
 static int diff2_get_dirty(BlockDriverState *bs, uint64_t cur_sector,
-                           int generation)
+                           int dst_gen_num)
 {
     BDRVDiff2State *s = bs->opaque;
-    return get_dirty(s, cur_sector, generation);
+    return get_dirty(s, cur_sector, dst_gen_num);
 }
 
 static int diff2_get_info(BlockDriverState *bs, BlockDriverInfo *bdi)
 {    
     BDRVDiff2State *s = bs->opaque;
     bdi->enable_diff_sending = 1;
+    bdi->cur_gen = s->cur_gen;
     memcpy(bdi->mom_sign, s->mom_sign, sizeof(s->mom_sign));
     memcpy(bdi->format_name, FORNAME_NAME, sizeof(FORNAME_NAME));
     return 0;

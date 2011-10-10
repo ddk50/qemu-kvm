@@ -204,6 +204,8 @@ struct BlockDriverState {
     int type;
     BlockErrorAction on_read_error, on_write_error;
     char device_name[32];
+    
+    uint32_t cur_gen;
     unsigned long *dirty_bitmap;
     int64_t dirty_count;
     
@@ -239,6 +241,7 @@ int is_windows_drive(const char *filename);
 
 struct DiffState {
     uint32_t magic_number;
+    uint32_t cur_gen;
     char format_name[32];
     char mom_sign[37];
 };

@@ -144,9 +144,7 @@ MigrationState *tcp_start_outgoing_migration(Monitor *mon,
         DPRINTF("connect failed\n");
         migrate_fd_error(s);
     } else if (ret >= 0)
-        migrate_fd_connect(s);
-
-    
+        migrate_fd_connect(s);    
 
     return &s->mig_state;
 }

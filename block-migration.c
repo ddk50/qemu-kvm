@@ -1,5 +1,4 @@
 /*
-
  * QEMU live block migration
  *
  * Copyright IBM, Corp. 2009
@@ -60,6 +59,7 @@ typedef struct BlkMigDevState {
 typedef struct BlkMigBlock {
     uint8_t *buf;
     BlkMigDevState *bmds;
+    uint32_t cur_gen;
     int64_t sector;
     int nr_sectors;
     struct iovec iov;
@@ -74,6 +74,7 @@ typedef struct BlkMigState {
     int blk_enable;
     int shared_base;
     int diff_enable;
+    QEMUFile *f;
     QSIMPLEQ_HEAD(bmds_list, BlkMigDevState) bmds_list;
     QSIMPLEQ_HEAD(blk_list, BlkMigBlock) blk_list;
     int submitted;
@@ -91,6 +92,9 @@ static BlkMigState block_mig_state;
 /* from savevm.c */
 extern int qemu_direct_put_buffer(QEMUFile *f, const uint8_t *buf, ssize_t size);
 extern int qemu_direct_get_buffer(QEMUFile *f, uint8_t *buf, ssize_t size);
+
+static int start_outgoing_negos(BlockDriverState *bs);
+static int start_incoming_negos(BlockDriverState *bs);
 
 static void blk_send(QEMUFile *f, BlkMigBlock * blk)
 {
@@ -249,51 +253,24 @@ static int mig_save_device_bulk(Monitor *mon, QEMUFile *f,
         nr_sectors = total_sectors - cur_sector;
     }
 
-    if (bdrv_is_enabled_diff_sending(bmds->bs)) {
-        /* Currently, do not recognize between 0: Acc and 1:AccDirty */
-        if (bdrv_get_block_dirty(bmds->bs, cur_sector, 0)) {            
-            printf("Kaz block sending, %u\n", BLOCK_SIZE);
-            /* if dirty send it */
-            blk = qemu_malloc(sizeof(BlkMigBlock));
-            blk->buf = qemu_malloc(BLOCK_SIZE);
-            blk->bmds = bmds;
-            blk->sector = cur_sector;
-            blk->nr_sectors = nr_sectors;
+    blk = qemu_malloc(sizeof(BlkMigBlock));
+    blk->buf = qemu_malloc(BLOCK_SIZE);
+    blk->bmds = bmds;
+    blk->sector = cur_sector;
+    blk->nr_sectors = nr_sectors;
 
-            blk->iov.iov_base = blk->buf;
-            blk->iov.iov_len = nr_sectors * BDRV_SECTOR_SIZE;
-            qemu_iovec_init_external(&blk->qiov, &blk->iov, 1);
+    blk->iov.iov_base = blk->buf;
+    blk->iov.iov_len = nr_sectors * BDRV_SECTOR_SIZE;
+    qemu_iovec_init_external(&blk->qiov, &blk->iov, 1);
 
-            blk->time = qemu_get_clock_ns(rt_clock);
+    blk->time = qemu_get_clock_ns(rt_clock);
 
-            blk->aiocb = bdrv_aio_readv(bs, cur_sector, &blk->qiov,
-                                        nr_sectors, blk_mig_read_cb, blk);
-            if (!blk->aiocb) {
-                goto error;
-            }
-            block_mig_state.submitted++;
-        }
-    } else {
-        /* normal bulk sending */
-        blk = qemu_malloc(sizeof(BlkMigBlock));
-        blk->buf = qemu_malloc(BLOCK_SIZE);
-        blk->bmds = bmds;
-        blk->sector = cur_sector;
-        blk->nr_sectors = nr_sectors;
-
-        blk->iov.iov_base = blk->buf;
-        blk->iov.iov_len = nr_sectors * BDRV_SECTOR_SIZE;
-        qemu_iovec_init_external(&blk->qiov, &blk->iov, 1);
-
-        blk->time = qemu_get_clock_ns(rt_clock);
-
-        blk->aiocb = bdrv_aio_readv(bs, cur_sector, &blk->qiov,
-                                    nr_sectors, blk_mig_read_cb, blk);
-        if (!blk->aiocb) {
-            goto error;
-        }
-        block_mig_state.submitted++;
+    blk->aiocb = bdrv_aio_readv(bs, cur_sector, &blk->qiov,
+                                nr_sectors, blk_mig_read_cb, blk);
+    if (!blk->aiocb) {
+        goto error;
     }
+    block_mig_state.submitted++;
     
     bdrv_reset_dirty(bs, cur_sector, nr_sectors);
     bmds->cur_sector = cur_sector + nr_sectors;
@@ -350,12 +327,35 @@ static void init_blk_migration_it(void *opaque, BlockDriverState *bs)
                            bs->device_name);
         }
 
+        if (block_mig_state.diff_enable) {
+            int len;
+            
+            assert(block_mig_state.f != NULL);
+   
+            /* start negos */
+            qemu_put_be64(block_mig_state.f, BLK_MIG_FLAG_NEGOS);
+
+            /* device name */
+            len = strlen(bmds->bs->device_name);
+            qemu_put_byte(block_mig_state.f, len);
+            qemu_put_buffer(block_mig_state.f, 
+                            (uint8_t *)bmds->bs->device_name, len);
+
+            qemu_fflush(block_mig_state.f);
+            
+            if (start_outgoing_negos(bs) < 0) {
+                monitor_printf(mon, "Could not connect dest\n");
+                block_mig_state.f = NULL;
+                abort();
+            }
+        }
+
         QSIMPLEQ_INSERT_TAIL(&block_mig_state.bmds_list, bmds, entry);
     }
 }
 
 static void init_blk_migration(Monitor *mon, QEMUFile *f)
-{
+{    
     block_mig_state.submitted = 0;
     block_mig_state.read_done = 0;
     block_mig_state.transferred = 0;
@@ -364,6 +364,7 @@ static void init_blk_migration(Monitor *mon, QEMUFile *f)
     block_mig_state.bulk_completed = 0;
     block_mig_state.total_time = 0;
     block_mig_state.reads = 0;
+    block_mig_state.f = f;
 
     bdrv_iterate(init_blk_migration_it, mon);
 }
@@ -427,7 +428,7 @@ static int mig_save_device_dirty(Monitor *mon, QEMUFile *f,
         if (bmds_aio_inflight(bmds, sector)) {
             qemu_aio_flush();
         }
-        if (bdrv_get_dirty(bmds->bs, sector)) {
+        if (bdrv_get_dirty(bmds->bs, sector, bmds->bs->cur_gen)) {
 
             if (total_sectors - sector < BDRV_SECTORS_PER_DIRTY_CHUNK) {
                 nr_sectors = total_sectors - sector;
@@ -594,8 +595,10 @@ static void blk_mig_cleanup(Monitor *mon)
     monitor_printf(mon, "\n");
 }
 
-static int start_outgoing_negos(void)
+static int start_outgoing_negos(BlockDriverState *bs)
 {
+    BlockDriver *drv = bs->drv;
+    BlockDriverInfo bdi;
     struct sockaddr_in addr;
     struct DiffState banner;
     int fd;
@@ -620,9 +623,11 @@ static int start_outgoing_negos(void)
     do {
         ret = connect(fd, (struct sockaddr *)&addr, sizeof(addr));
         if (ret == -1) {
-            printf("connect error trying ... \n");
-        }
+            printf("connect error trying ... \r");
+        }                  
     } while (ret < 0);
+    printf("done\n");
+    fflush(stdout);
     
     printf("recving...");
     recv(fd, &banner, sizeof(banner), 0);
@@ -630,6 +635,16 @@ static int start_outgoing_negos(void)
     printf("  magic_number: %d\n", banner.magic_number);
     printf("  format_name: %s\n", banner.format_name);
     printf("  header.mom_sign: %s\n", banner.mom_sign);
+    printf("  cur_gen: %d\n", banner.cur_gen);
+
+    bdrv_get_info(bs, &bdi);
+
+    if ((strcmp(banner.mom_sign, bdi.mom_sign) != 0) ||
+        (strcmp(banner.format_name, drv->format_name) != 0) ||
+        (banner.magic_number != DIFF_STATE_MAGIC_NUM)) {
+        printf("Could not equal seed number\n");
+        return -1;
+    }
 
     close(fd);
 
@@ -647,11 +662,7 @@ static int start_incoming_negos(BlockDriverState *bs)
     int newfd;
     static int already_execute = 0;
     int i = 0;
-    struct DiffState header = {
-        .magic_number = 0x12345678,
-        .format_name  = "diff2",
-        .mom_sign     = "8cc07c3f-9793-410d-af78-76c3c5c1b15d", 
-    };
+    struct DiffState header;
 
     if (already_execute)
         return 1;
@@ -680,16 +691,25 @@ static int start_incoming_negos(BlockDriverState *bs)
         newfd = qemu_accept(fd, (struct sockaddr *)&addr, &addrlen);
     } while (newfd == -1 && socket_error() == EINTR);
 
-    /* bdrv_get_info(bs, &bdi); */
-    /* memset(&header, 0, sizeof(header)); */
+    printf("drv->format_name: %s\n", drv->format_name);
 
-    /* if (bdi.enable_diff_sending) { */
-    /*     header.magic_number = DIFF_STATE_MAGIC_NUM; */
-    /*     memcpy(&header.format_name, drv->format_name,  */
-    /*            sizeof(header.format_name));         */
-    /*     memcpy(&header.mom_sign, bdi.mom_sign,  */
-    /*            sizeof(header.mom_sign)); */
-    /* } */
+    bdrv_get_info(bs, &bdi);
+    memset(&header, 0, sizeof(header));
+
+    if (bdi.enable_diff_sending) {
+        header.magic_number = DIFF_STATE_MAGIC_NUM;
+        header.cur_gen = bdi.cur_gen;
+        memcpy(&header.format_name, drv->format_name,
+               sizeof(header.format_name));
+        memcpy(&header.mom_sign, bdi.mom_sign,
+               sizeof(header.mom_sign));
+    }
+    
+    printf("header:\n");
+    printf("  magic_number: %d\n", header.magic_number);
+    printf("  format_name: %s\n", header.format_name);
+    printf("  header.mom_sign: %s\n", header.mom_sign);
+    printf("  cur_gen: %d\n", header.cur_gen);
 
     printf("sending header ... ");
     send(newfd, &header, sizeof(header), 0);
@@ -725,15 +745,6 @@ static int block_save_live(Monitor *mon, QEMUFile *f, int stage, void *opaque)
 
         /* start track dirty blocks */
         set_dirty_tracking(1);
-        
-        if (block_mig_state.diff_enable) {
-            /* start negos */
-            qemu_put_be64(f, BLK_MIG_FLAG_NEGOS);
-            qemu_fflush(f);
-            
-            if (start_outgoing_negos() < 0)
-                abort();
-        }
     }
 
     flush_blks(f);
@@ -848,7 +859,7 @@ static int block_load(QEMUFile *f, void *opaque, int version_id)
 
             qemu_get_buffer(f, buf, BLOCK_SIZE);            
             ret = bdrv_write(bs, addr, buf, nr_sectors);
-
+            
             qemu_free(buf);
             if (ret < 0) {
                 return ret;
@@ -866,9 +877,23 @@ static int block_load(QEMUFile *f, void *opaque, int version_id)
 
             fflush(stdout);
         } else if (flags & BLK_MIG_FLAG_NEGOS) {
-            if (start_incoming_negos(bs) < 0)
-                abort();
-            abort(); // for test;
+            
+            len = qemu_get_byte(f);
+            qemu_get_buffer(f, (uint8_t *)device_name, len);
+            device_name[len] = '\0';
+
+            bs = bdrv_find(device_name);
+            if (!bs) {
+                fprintf(stderr, "Error unknown block device %s\n",
+                        device_name);
+                return -EINVAL;
+            }
+            
+            if (start_incoming_negos(bs) < 0) {
+                fprintf(stderr, "Could not start incoming server\n");
+                return -EINVAL;
+            }
+            
         } else if (!(flags & BLK_MIG_FLAG_EOS)) {
             fprintf(stderr, "Unknown flags\n");
             return -EINVAL;
@@ -890,6 +915,7 @@ static void block_set_params(int blk_enable, int shared_base,
 
     /* shared base means that blk_enable = 1 */
     block_mig_state.blk_enable |= shared_base;
+    block_mig_state.blk_enable |= diff_enable;
 }
 
 void blk_mig_init(void)
@@ -899,7 +925,4 @@ void blk_mig_init(void)
 
     register_savevm_live(NULL, "block", 0, 1, block_set_params,
                          block_save_live, NULL, block_load, &block_mig_state);
-
-    /* kazushi check */
-    printf("check BLOCK_SIZE: %d\n", BLOCK_SIZE);
 }
