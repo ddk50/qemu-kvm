@@ -22,7 +22,7 @@
 #include "qemu-objects.h"
 #include "bench_timer.h"
 
-//#define DEBUG_MIGRATION
+#define DEBUG_MIGRATION
 
 #ifdef DEBUG_MIGRATION
 #define DPRINTF(fmt, ...) \
@@ -72,6 +72,7 @@ void process_incoming_migration(QEMUFile *f)
         exit(0);
     }
     qemu_announce_self();
+    bdrv_announce_completed_block_migration(1);
     DPRINTF("successfully loaded vm state\n");
 
     incoming_expected = false;
@@ -309,6 +310,9 @@ int migrate_fd_cleanup(FdMigrationState *s)
     }
 
     s->fd = -1;
+    
+    /* freezed image */
+    bdrv_announce_completed_block_migration(0);
 
     return ret;
 }

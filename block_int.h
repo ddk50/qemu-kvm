@@ -89,6 +89,9 @@ struct BlockDriver {
     int (*bdrv_get_block_dirty)(BlockDriverState *bs, uint64_t cur_sector, 
                                 int dst_gen_num);
 
+    int (*bdrv_completed_block_migration)(BlockDriverState *bs,
+                                          int is_dest);
+
     const char *protocol_name;
     int (*bdrv_truncate)(BlockDriverState *bs, int64_t offset);
     int64_t (*bdrv_getlength)(BlockDriverState *bs);

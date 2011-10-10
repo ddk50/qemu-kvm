@@ -38,6 +38,8 @@ typedef struct diff2_header {
     uint64_t genmap_size;
     uint32_t bitmap_size;    
     uint32_t freezed; /* if 1, does not execute */
+    /* bitmap */
+    /* genmap */
 } Diff2Header;
 
 typedef struct BDRVDiff2State {
@@ -106,6 +108,12 @@ static int diff2_open(BlockDriverState *bs, int flags)
         goto fail;
     }
 
+    if (diff2.freezed == 1) {
+        fprintf(stderr, 
+                "This image is freezed. Can not open this file currently\n");
+        goto fail;
+    }
+
     /* Currently, generation bits only supports 8 */
     assert(GENERATION_BITS == 8);
     
@@ -122,27 +130,27 @@ static int diff2_open(BlockDriverState *bs, int flags)
      */
     bs->total_sectors = s->total_size / 512;
 
-    /*
-     * read out genmap
-     */
     s->genmap = qemu_mallocz(s->genmap_size);
     assert(s->genmap != NULL);
 
-    /*
-     * read out bitmap
-     */
     s->bitmap = qemu_mallocz(s->bitmap_size);
     assert(s->bitmap != NULL);
 
     
     pos = diff2.header_size;
     
+    /*
+     * read out bitmap
+     */
     if (bdrv_pread(bs->file, pos, s->bitmap, s->bitmap_size)
         != s->bitmap_size) {
         DPRINTF("Could not read out bitmap\n");
         goto fail;
     }
 
+    /*
+     * read out genmap
+     */
     if (bdrv_pread(bs->file, pos + s->bitmap_size, s->genmap, s->genmap_size)
         != s->genmap_size) {
         DPRINTF("Could not read out genmap\n");
@@ -254,7 +262,12 @@ static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
     }
 
     /* TODO: write diff_bitmap to physical disk */
+    bdrv_pwrite(bs->file, HEADER_SIZE, 
+                s->bitmap, s->bitmap_size);
+    bdrv_pwrite(bs->file, s->bitmap_size + HEADER_SIZE,
+                s->genmap, s->genmap_size);
     
+    bdrv_flush(bs);
 
     //    if (cur_gen == 0) {
     if (0) {
@@ -474,7 +487,7 @@ static int diff2_create(const char *filename, QEMUOptionParameter *options)
     
     genmap_size = (bitmap_size * 8 * GENERATION_BITS) / 8;
     header.genmap_size  = genmap_size;
-    DPRINTF("genmap_size: %lf [KBytes]\n", header.genmap_size / 1024.0);    
+    DPRINTF("genmap_size: %lf [KBytes]\n", header.genmap_size / 1024.0);
     
     bitmap = qemu_mallocz(bitmap_size);
     assert(bitmap != NULL);
@@ -568,6 +581,35 @@ static int diff2_get_info(BlockDriverState *bs, BlockDriverInfo *bdi)
     return 0;
 }
 
+static int diff2_completed_block_migration(BlockDriverState *bs,
+                                           int is_dest)
+{
+    struct diff2_header diff2;
+    BDRVDiff2State *s = bs->opaque;
+    
+    if (bdrv_pread(bs->file, 0, &diff2, sizeof(diff2)) 
+        != sizeof(diff2)) {
+        DPRINTF("Could not read out header");
+        return 0;
+    }
+
+    if (is_dest) {    
+        s->cur_gen++;
+        diff2.cur_gen = s->cur_gen;
+    } else {
+        diff2.freezed = 1;
+    }
+
+    if (bdrv_pwrite(bs->file, 0, &diff2, sizeof(diff2))
+        != sizeof(diff2))  {
+        return 0;
+    }
+
+    bdrv_flush(bs);
+
+    return 1;
+}
+
 static BlockDriver bdrv_diff2 = {
     .format_name        = FORNAME_NAME,
 
@@ -601,7 +643,8 @@ static BlockDriver bdrv_diff2 = {
     .bdrv_get_block_dirtymap = diff2_get_dirtymap,
     .bdrv_get_block_dirty    = diff2_get_dirty,
 
-    .bdrv_get_info      = diff2_get_info,
+    .bdrv_get_info      = diff2_get_info,    
+    .bdrv_completed_block_migration = diff2_completed_block_migration,
 };
 
 static void bdrv_diff2_init(void)

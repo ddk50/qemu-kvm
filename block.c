@@ -2961,3 +2961,24 @@ out:
 
     return ret;
 }
+
+static int bdrv_completed_block_migration(BlockDriverState *bs, 
+                                          int is_dest)
+{    
+    BlockDriver *drv = bs->drv;
+    if (!drv)
+        return -ENOMEDIUM;
+
+    return drv->bdrv_completed_block_migration(bs, is_dest);
+}
+
+
+void bdrv_announce_completed_block_migration(int is_dest)
+{
+    BlockDriverState *bs;
+    
+    QTAILQ_FOREACH(bs, &bdrv_states, list) {
+        bdrv_completed_block_migration(bs, is_dest);
+    }
+}
+
