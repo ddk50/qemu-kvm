@@ -253,24 +253,53 @@ static int mig_save_device_bulk(Monitor *mon, QEMUFile *f,
         nr_sectors = total_sectors - cur_sector;
     }
 
-    blk = qemu_malloc(sizeof(BlkMigBlock));
-    blk->buf = qemu_malloc(BLOCK_SIZE);
-    blk->bmds = bmds;
-    blk->sector = cur_sector;
-    blk->nr_sectors = nr_sectors;
+    if (bdrv_is_enabled_diff_sending(bmds->bs) 
+        && block_mig_state.diff_enable) {
+        /* only diff translate */        
+        /* currently, do not recognize between 0: Acc and 1:AccDirty */
+        if (bdrv_get_block_dirty(bmds->bs, cur_sector, bmds->bs->cur_gen)) {
+            printf("gen: %d Kaz block sending, %u\n", bmds->bs->cur_gen, BLOCK_SIZE);
+            /* if dirty send it */
+            blk = qemu_malloc(sizeof(BlkMigBlock));
+            blk->buf = qemu_malloc(BLOCK_SIZE);
+            blk->bmds = bmds;
+            blk->sector = cur_sector;
+            blk->nr_sectors = nr_sectors;
 
-    blk->iov.iov_base = blk->buf;
-    blk->iov.iov_len = nr_sectors * BDRV_SECTOR_SIZE;
-    qemu_iovec_init_external(&blk->qiov, &blk->iov, 1);
+            blk->iov.iov_base = blk->buf;
+            blk->iov.iov_len = nr_sectors * BDRV_SECTOR_SIZE;
+            qemu_iovec_init_external(&blk->qiov, &blk->iov, 1);
 
-    blk->time = qemu_get_clock_ns(rt_clock);
+            blk->time = qemu_get_clock_ns(rt_clock);
 
-    blk->aiocb = bdrv_aio_readv(bs, cur_sector, &blk->qiov,
-                                nr_sectors, blk_mig_read_cb, blk);
-    if (!blk->aiocb) {
-        goto error;
+            blk->aiocb = bdrv_aio_readv(bs, cur_sector, &blk->qiov,
+                                        nr_sectors, blk_mig_read_cb, blk);
+            if (!blk->aiocb) {
+                goto error;
+            }
+            block_mig_state.submitted++;
+        }
+    } else {
+        /* normal bulk sending */
+        blk = qemu_malloc(sizeof(BlkMigBlock));
+        blk->buf = qemu_malloc(BLOCK_SIZE);
+        blk->bmds = bmds;
+        blk->sector = cur_sector;
+        blk->nr_sectors = nr_sectors;
+
+        blk->iov.iov_base = blk->buf;
+        blk->iov.iov_len = nr_sectors * BDRV_SECTOR_SIZE;
+        qemu_iovec_init_external(&blk->qiov, &blk->iov, 1);
+
+        blk->time = qemu_get_clock_ns(rt_clock);
+
+        blk->aiocb = bdrv_aio_readv(bs, cur_sector, &blk->qiov,
+                                    nr_sectors, blk_mig_read_cb, blk);
+        if (!blk->aiocb) {
+            goto error;
+        }
+        block_mig_state.submitted++;
     }
-    block_mig_state.submitted++;
     
     bdrv_reset_dirty(bs, cur_sector, nr_sectors);
     bmds->cur_sector = cur_sector + nr_sectors;
@@ -428,7 +457,7 @@ static int mig_save_device_dirty(Monitor *mon, QEMUFile *f,
         if (bmds_aio_inflight(bmds, sector)) {
             qemu_aio_flush();
         }
-        if (bdrv_get_dirty(bmds->bs, sector, bmds->bs->cur_gen)) {
+        if (bdrv_get_dirty(bmds->bs, sector)) {
 
             if (total_sectors - sector < BDRV_SECTORS_PER_DIRTY_CHUNK) {
                 nr_sectors = total_sectors - sector;

@@ -83,11 +83,11 @@ struct BlockDriver {
 
     /* 0: Acc, 1: AccDirty */
     int (*bdrv_get_block_dirtymap)(BlockDriverState *bs, uint8_t *buf, 
-                                   int generation);
+                                   int dst_gen_num);
 
     /* 0: Acc, 1: AccDirty */
     int (*bdrv_get_block_dirty)(BlockDriverState *bs, uint64_t cur_sector, 
-                                int generation);
+                                int dst_gen_num);
 
     const char *protocol_name;
     int (*bdrv_truncate)(BlockDriverState *bs, int64_t offset);

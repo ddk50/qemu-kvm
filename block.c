@@ -2751,13 +2751,9 @@ void bdrv_set_dirty_tracking(BlockDriverState *bs, int enable)
     }
 }
 
-int bdrv_get_dirty(BlockDriverState *bs, int32_t generation, 
-                   int64_t sector)
+int bdrv_get_dirty(BlockDriverState *bs, int64_t sector)
 {    
-    int64_t chunk = sector / (int64_t)BDRV_SECTORS_PER_DIRTY_CHUNK;
-
-    assert(generation >= 0);
-    printf("%s: %d\n", __FUNCTION__, generation);
+    int64_t chunk = sector / (int64_t)BDRV_SECTORS_PER_DIRTY_CHUNK;   
     
     if (bs->dirty_bitmap &&
         (sector << BDRV_SECTOR_BITS) < bdrv_getlength(bs)) {
@@ -2795,9 +2791,8 @@ int bdrv_is_enabled_diff_sending(BlockDriverState *bs)
     BlockDriver *drv = bs->drv;
 
     if ((strcmp(drv->format_name, "diff2") == 0)) {
-        printf("enable delta translate\n");
         return 1;
-    }  
+    }
 
     return 0;
 }
@@ -2808,8 +2803,7 @@ int bdrv_get_block_dirty(BlockDriverState *bs, uint64_t cur_sector,
     BlockDriver *drv = bs->drv;
 
     assert(drv != NULL);
-
-    /* generation is always 1 */
+    
     if (!drv)
         return -ENOMEDIUM;
 
@@ -2820,7 +2814,6 @@ int bdrv_get_block_dirtymap(BlockDriverState *bs, uint8_t *buf,
                             int dst_gen_num)
 {
     BlockDriver *drv = bs->drv;
-    /* generation is always 1 */
     if (!drv)
         return -ENOMEDIUM;
 
