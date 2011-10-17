@@ -36,6 +36,8 @@ typedef struct diff_header {
     uint32_t bitmap_count; /* currently, always 2 (Dirty, AccDirty) */
     uint32_t bitmap_size;
     uint32_t freezed; /* if 1, does not execute */
+    /* 0: Dirty */
+    /* 1: AccDirty */
 } DiffHeader;
 
 typedef struct BDRVDiffState {    
@@ -54,7 +56,7 @@ typedef struct BDRVDiffState {
 #define HEADER_VERSION 0x00020000
 #define HEADER_SIZE sizeof(DiffHeader)
 
-#define DEBUG_DIFF_FILE
+//#define DEBUG_DIFF_FILE
 
 #ifdef DEBUG_DIFF_FILE
 #define DPRINTF(fmt, ...) \
@@ -85,6 +87,8 @@ static int diff_open(BlockDriverState *bs, int flags)
     uint32_t pos;
     uint64_t bitmap_size;
     BDRVDiffState *s = bs->opaque;
+
+    bs->sg = bs->file->sg;
 
     if (bdrv_pread(bs->file, 0, &diff, sizeof(diff)) != sizeof(diff)) {
         DPRINTF("Could not read out header\n");
@@ -193,36 +197,42 @@ static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
     }
 
     /* TODO: write diff_bitmap to physical disk */
+    /* bdrv_pwrite(bs->file, HEADER_SIZE, */
+    /*             s->diff_bitmap[0], s->bitmap_size); */
+    /* bdrv_pwrite(bs->file, s->bitmap_size + HEADER_SIZE, */
+    /*             s->diff_bitmap[1], s->bitmap_size); */
+    
+    /* bdrv_flush(bs); */
     
 
-    //    if (generation == 0) {
-    if (0) {
-        /* calsulate dirty page */
-        int64_t i, j;
-        int64_t dirty_chunks;
-        static int64_t cumulative_dirty_sectors = 0;
-        time_t t;
-        char *datetime;
+    /* //    if (generation == 0) { */
+    /* if (0) { */
+    /*     /\* calsulate dirty page *\/ */
+    /*     int64_t i, j; */
+    /*     int64_t dirty_chunks; */
+    /*     static int64_t cumulative_dirty_sectors = 0; */
+    /*     time_t t; */
+    /*     char *datetime; */
         
-        dirty_chunks = 0;
+    /*     dirty_chunks = 0; */
         
-        for (i = 0 ; i < bs->total_sectors ; i += BDRV_SECTORS_PER_DIRTY_CHUNK) {
-            if (get_dirty(s, i, generation))
-                dirty_chunks++;
-        }
+    /*     for (i = 0 ; i < bs->total_sectors ; i += BDRV_SECTORS_PER_DIRTY_CHUNK) { */
+    /*         if (get_dirty(s, i, generation)) */
+    /*             dirty_chunks++; */
+    /*     } */
    
-        cumulative_dirty_sectors += nb_sectors;	
-        t = time(NULL);
-        localtime(&t);
-        /* printf("cumulative dirty sectors: %lld, dirty_chunks: %lld%c", */
-        /*        cumulative_dirty_sectors, */
-        /*        dirty_chunks, */
-        /*        '\r'); */
-        /* fflush(stdout); */	    
-        datetime = ctime(&t);
-        datetime[strlen(datetime) - 1] = '\0';
-        printf("%s, %lld, %lld\n", datetime, cumulative_dirty_sectors, dirty_chunks);
-    }
+    /*     cumulative_dirty_sectors += nb_sectors;	 */
+    /*     t = time(NULL); */
+    /*     localtime(&t); */
+    /*     /\* printf("cumulative dirty sectors: %lld, dirty_chunks: %lld%c", *\/ */
+    /*     /\*        cumulative_dirty_sectors, *\/ */
+    /*     /\*        dirty_chunks, *\/ */
+    /*     /\*        '\r'); *\/ */
+    /*     /\* fflush(stdout); *\/	     */
+    /*     datetime = ctime(&t); */
+    /*     datetime[strlen(datetime) - 1] = '\0'; */
+    /*     printf("%s, %lld, %lld\n", datetime, cumulative_dirty_sectors, dirty_chunks); */
+    /* } */
 }
 
 static int get_dirty(BDRVDiffState *s, int64_t sector, int generation)
@@ -245,7 +255,7 @@ static int diff_write(BlockDriverState *bs, int64_t sector_num,
 {
     BDRVDiffState *s = bs->opaque;
     
-    set_dirty_bitmap(bs, sector_num, nb_sectors, 1, 0);    
+    set_dirty_bitmap(bs, sector_num, nb_sectors, 1, 0);
     set_dirty_bitmap(bs, sector_num, nb_sectors, 1, 1);
     
     return bdrv_write(bs->file, 
@@ -257,11 +267,7 @@ static BlockDriverAIOCB *diff_aio_readv(BlockDriverState *bs,
     int64_t sector_num, QEMUIOVector *qiov, int nb_sectors,
     BlockDriverCompletionFunc *cb, void *opaque)
 {
-    BDRVDiffState *s = bs->opaque;
-
-    DPRINTF("read: %lld\n", sector_num);
-    DPRINTF("%s\n", __FUNCTION__);
-    
+    BDRVDiffState *s = bs->opaque;    
     return bdrv_aio_readv(bs->file, 
                           sector_num + (s->diff_sectors_offset / 512),
                           qiov, nb_sectors, cb, opaque);

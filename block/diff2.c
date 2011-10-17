@@ -60,7 +60,7 @@ typedef struct BDRVDiff2State {
 #define HEADER_SIZE     sizeof(Diff2Header)
 #define GENERATION_BITS 8 /* must be 1 byte */
 
-#define DEBUG_DIFF2_FILE
+//#define DEBUG_DIFF2_FILE
 
 #ifdef DEBUG_DIFF2_FILE
 #define DPRINTF(fmt, ...) \
@@ -262,7 +262,7 @@ static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
     }
 
     /* TODO: write diff_bitmap to physical disk */
-    bdrv_pwrite(bs->file, HEADER_SIZE, 
+    bdrv_pwrite(bs->file, HEADER_SIZE,
                 s->bitmap, s->bitmap_size);
     bdrv_pwrite(bs->file, s->bitmap_size + HEADER_SIZE,
                 s->genmap, s->genmap_size);
@@ -270,33 +270,33 @@ static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
     bdrv_flush(bs);
 
     //    if (cur_gen == 0) {
-    if (0) {
-        /* calsulate dirty page */
-        int64_t i;
-        int64_t dirty_chunks;
-        static int64_t cumulative_dirty_sectors = 0;
-        time_t t;
-        char *datetime;
+    /* if (0) { */
+    /*     /\* calsulate dirty page *\/ */
+    /*     int64_t i; */
+    /*     int64_t dirty_chunks; */
+    /*     static int64_t cumulative_dirty_sectors = 0; */
+    /*     time_t t; */
+    /*     char *datetime; */
         
-        dirty_chunks = 0;
+    /*     dirty_chunks = 0; */
         
-        for (i = 0 ; i < bs->total_sectors ; i += BDRV_SECTORS_PER_DIRTY_CHUNK) {
-            if (get_dirty(s, i, cur_gen))
-                dirty_chunks++;
-        }
+    /*     for (i = 0 ; i < bs->total_sectors ; i += BDRV_SECTORS_PER_DIRTY_CHUNK) { */
+    /*         if (get_dirty(s, i, cur_gen)) */
+    /*             dirty_chunks++; */
+    /*     } */
    
-        cumulative_dirty_sectors += nb_sectors;	
-        t = time(NULL);
-        localtime(&t);
-        /* printf("cumulative dirty sectors: %lld, dirty_chunks: %lld%c", */
-        /*        cumulative_dirty_sectors, */
-        /*        dirty_chunks, */
-        /*        '\r'); */
-        /* fflush(stdout); */	    
-        datetime = ctime(&t);
-        datetime[strlen(datetime) - 1] = '\0';
-        printf("%s, %lld, %lld\n", datetime, cumulative_dirty_sectors, dirty_chunks);
-    }
+    /*     cumulative_dirty_sectors += nb_sectors;	 */
+    /*     t = time(NULL); */
+    /*     localtime(&t); */
+    /*     /\* printf("cumulative dirty sectors: %lld, dirty_chunks: %lld%c", *\/ */
+    /*     /\*        cumulative_dirty_sectors, *\/ */
+    /*     /\*        dirty_chunks, *\/ */
+    /*     /\*        '\r'); *\/ */
+    /*     /\* fflush(stdout); *\/	     */
+    /*     datetime = ctime(&t); */
+    /*     datetime[strlen(datetime) - 1] = '\0'; */
+    /*     printf("%s, %lld, %lld\n", datetime, cumulative_dirty_sectors, dirty_chunks); */
+    /* } */
     
     /* check bitmap for generation */
     /* debug_print_genmap(bs); */
