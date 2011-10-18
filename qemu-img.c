@@ -1501,81 +1501,81 @@ static int img_compare(int argc, char **argv)
 
 #define  BLOCK_SIZE  (32 * 1024)
 //#define  BLOCK_SIZE  512
-	BlockDriverState *bs1, *bs2;
-	char *format = argv[1];
-	char *fname1 = argv[2];
-	char *fname2 = argv[3];
-	uint8_t *block1, *block2;
+    BlockDriverState *bs1, *bs2;
+    char *format = argv[1];
+    char *fname1 = argv[2];
+    char *fname2 = argv[3];
+    uint8_t *block1, *block2;
 
-	if (BLOCK_SIZE % BDRV_SECTOR_SIZE) {
-		printf("BLOCK_SIZE does not align against BDRV_SECTOR_SIZE\n");
-		return 1;
-	} 
-	
-	if (!fname1 || !fname2) {
-		printf("please specify 2 virtual disks");
-		return 0;
-	}
-	
-	printf("comparing %s and %s...\n", fname1, fname2);
+    if (BLOCK_SIZE % BDRV_SECTOR_SIZE) {
+        printf("BLOCK_SIZE does not align against BDRV_SECTOR_SIZE\n");
+        return 1;
+    } 
+    
+    if (!fname1 || !fname2) {
+        printf("please specify 2 virtual disks");
+        return 0;
+    }
+    
+    printf("comparing %s and %s...\n", fname1, fname2);
+    
+    bs1 = bdrv_new_open(fname1, format, BDRV_O_FLAGS);
+    bs2 = bdrv_new_open(fname2, format, BDRV_O_FLAGS);
+    
+    if (!bs1 || !bs2) {
+        printf("disk open error\n");
+        return 1;
+    }
 
-	bs1 = bdrv_new_open(fname1, format, BDRV_O_FLAGS);
-	bs2 = bdrv_new_open(fname2, format, BDRV_O_FLAGS);
-	
-	if (!bs1 || !bs2) {
-		printf("disk open error\n");
-		return 1;
-	}
+    uint64_t disk1size = bdrv_getlength(bs1) / BDRV_SECTOR_SIZE;
+    uint64_t disk2size = bdrv_getlength(bs2) / BDRV_SECTOR_SIZE;
 
-	uint64_t disk1size = bdrv_getlength(bs1) / BDRV_SECTOR_SIZE;
-	uint64_t disk2size = bdrv_getlength(bs2) / BDRV_SECTOR_SIZE;
+    printf("disk1: %lf [GBytes]\ndisk2: %lf [Gbytes]\n", 
+           bdrv_getlength(bs1) / 1024 / 1024 / 1024.0,
+           bdrv_getlength(bs2) / 1024 / 1024 / 1024.0);
 
-	printf("disk1: %lf [GBytes]\ndisk2: %lf [Gbytes]\n", 
-		   bdrv_getlength(bs1) / 1024 / 1024 / 1024.0,
-		   bdrv_getlength(bs2) / 1024 / 1024 / 1024.0);
+    block1 = qemu_mallocz(BLOCK_SIZE);
+    block2 = qemu_mallocz(BLOCK_SIZE);
+    
+    int size1 = BLOCK_SIZE / BDRV_SECTOR_SIZE;        
+    int size2 = BLOCK_SIZE / BDRV_SECTOR_SIZE;
+    int read_size1, read_size2;
+    int ret1, ret2;
+    uint64_t current_sector1 = 0;
+    uint64_t current_sector2 = 0;
+    
+    while (disk1size && disk2size) {
+        read_size1 = MIN(size1, disk1size);
+        ret1 = bdrv_read(bs1, current_sector1, block1, read_size1);
+        if (ret1 < 0) {
+            printf("reading error\n");
+            goto fail;
+        }
 
-	block1 = qemu_mallocz(BLOCK_SIZE);
-	block2 = qemu_mallocz(BLOCK_SIZE);
-	
-	int size1 = BLOCK_SIZE / BDRV_SECTOR_SIZE;	      
-	int size2 = BLOCK_SIZE / BDRV_SECTOR_SIZE;
-	int read_size1, read_size2;
-	int ret1, ret2;
-	uint64_t current_sector1 = 0;
-	uint64_t current_sector2 = 0;
-	
-	while (disk1size && disk2size) {
-		read_size1 = MIN(size1, disk1size);
-		ret1 = bdrv_read(bs1, current_sector1, block1, read_size1);
-		if (ret1 < 0) {
-			printf("reading error\n");
-			goto fail;
-		}
+        read_size2 = MIN(size2, disk2size);
+        ret2 = bdrv_read(bs2, current_sector2, block2, read_size2);
+        if (ret2 < 0) {                   
+            printf("reading error\n");
+            goto fail;
+        }
+        
+        compsha1(block1, block2, read_size2 * BDRV_SECTOR_SIZE);
+        
+        disk1size -= read_size1;
+        disk2size -= read_size2;
 
-		read_size2 = MIN(size2, disk2size);
-		ret2 = bdrv_read(bs2, current_sector2, block2, read_size2);
-		if (ret2 < 0) {					  
-			printf("reading error\n");
-			goto fail;
-		}
-		
-		compsha1(block1, block2, read_size2 * BDRV_SECTOR_SIZE);
-		
-		disk1size -= read_size1;
-		disk2size -= read_size2;
-
-		current_sector1 += read_size1;
-		current_sector2 += read_size2;
-	}
-	
+        current_sector1 += read_size1;
+        current_sector2 += read_size2;
+    }
+    
 fail:
-	qemu_free(block1);
-	qemu_free(block2);
+    qemu_free(block1);
+    qemu_free(block2);
 
-	bdrv_delete(bs1);
-	bdrv_delete(bs2);
+    bdrv_delete(bs1);
+    bdrv_delete(bs2);
 
-	return 0;
+    return 0;
 }
 
 static const img_cmd_t img_cmds[] = {
