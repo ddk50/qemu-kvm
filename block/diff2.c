@@ -242,7 +242,7 @@ static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
         gen_ridx = total_bits / ((sizeof(unsigned long) * 8) / GENERATION_BITS);
         gen_nidx = total_bits % ((sizeof(unsigned long) * 8) / GENERATION_BITS);
         gen_val = s->genmap[gen_ridx];
-            
+	
         if (dirty) {
             if (!(val & (1UL << bit))) {
                 val |= 1UL << bit;
