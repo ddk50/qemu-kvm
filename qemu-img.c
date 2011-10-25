@@ -27,6 +27,7 @@
 #include "osdep.h"
 #include "sysemu.h"
 #include "block_int.h"
+#include "sha1.h"
 #include <stdio.h>
 
 #ifdef _WIN32
@@ -1493,89 +1494,286 @@ out:
     return 0;
 }
 
+/*
+ * Kazushi Addition
+ */
+
+typedef struct sha1map_file_hdr {
+    char magic[32]; /* "For Test File" */
+    char datetime[256]; /* generation datetime */    
+    char image_file_name[256];
+    uint32_t header_size;
+    uint32_t block_size;
+    uint64_t sha1map_size;
+    uint64_t orig_total_size;
+    /* sha1 sha1map */
+} SHA1mapFileHdr;
+
+typedef struct sha1_hash_data {
+    unsigned char hash[20];
+} SHA1hashData;
+
+/* 512 bytes per sector */
+#define LOG_BLOCK_SECTORS 1
+#define SHA1MAP_FILE_MAGIC "dorekuraiyogoreteiruno?"
+
+static int img_gensha1map(int argc, char **argv)
+{
+    int c;
+    int fd;
+    const char *filename, *fmt;
+    char fmt_name[128], size_buf[128], dsize_buf[128];
+    int64_t sha1map_size = 0;
+    int64_t total_size = 0;
+    uint64_t total_sectors;
+    int64_t allocated_size;
+    SHA1hashData *sha1map;
+    const char *genfilename;
+    SHA1mapFileHdr header;
+    time_t timer;
+    SHA1_CTX ctx;
+    BlockDriverState *bs;
+    struct tm *date;
+
+    fmt = NULL;
+    for(;;) {
+        c = getopt(argc, argv, "f:h");
+        if (c == -1) {
+            break;
+        }
+        switch(c) {
+        case '?':
+        case 'h':
+            help();
+            break;
+        case 'f':
+            fmt = optarg;
+            break;
+        }
+    }
+    if (optind >= argc) {
+        help();
+    }
+
+    filename = argv[optind++];
+    genfilename = argv[optind++];
+
+    bs = bdrv_new_open(filename, fmt, BDRV_O_FLAGS | BDRV_O_NO_BACKING);
+    if (!bs) {
+        return 1;
+    }
+
+    bdrv_get_format(bs, fmt_name, sizeof(fmt_name));
+    bdrv_get_geometry(bs, &total_sectors);
+    get_human_readable_size(size_buf, sizeof(size_buf), total_sectors * 512);
+    allocated_size = get_allocated_file_size(filename);
+    if (allocated_size < 0) {
+        snprintf(dsize_buf, sizeof(dsize_buf), "unavailable");
+    } else {
+        get_human_readable_size(dsize_buf, sizeof(dsize_buf),
+                                allocated_size);
+    }
+
+    printf("image: %s\n"
+           "file format: %s\n"
+           "virtual size: %s (%" PRId64 " bytes)\n"
+           "disk size: %s\n",
+           filename, fmt_name, size_buf,
+           (total_sectors * 512),
+           dsize_buf);
+    
+    memset(&header, 0, sizeof(header));
+    memcpy(header.magic, SHA1MAP_FILE_MAGIC, strlen(SHA1MAP_FILE_MAGIC));
+    
+    timer = time(NULL);
+    date = localtime(&timer);
+    strftime(header.datetime, 255, "%Y, %B, %d, %A %p%I:%M:%S", date);
+    
+    assert(strlen(filename) <= 256);
+    
+    memset(header.image_file_name, 0, 256);
+    memcpy(header.image_file_name, filename, strlen(filename));
+
+    header.header_size = sizeof(SHA1mapFileHdr);
+    header.block_size  = LOG_BLOCK_SECTORS * BDRV_SECTOR_SIZE;
+
+    /* 512 bytes */
+    total_size = bdrv_getlength(bs);
+    sha1map_size = (total_size / header.block_size) * sizeof(SHA1hashData);
+    
+    header.sha1map_size = sha1map_size;
+
+    /* sha1map file */
+    fd = open(genfilename, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY,
+              0644);
+
+    if (fd < 0) {
+        fprintf(stderr, "File open error\n");        
+        goto exit;
+    }
+
+    if (qemu_write_full(fd, &header, sizeof(header))
+        != sizeof(header)) {
+        fprintf(stderr, "header: qemu_write_full error\n");
+        goto exit;
+    }
+
+    /* generate sha1map */    
+    int64_t sha1_count = 0;
+    int64_t current_sector = 0;
+    SHA1hashData sha1;
+    int ret;
+    uint8_t *buf;
+    
+    /* sectors */
+    uint64_t disk_sectors = bdrv_getlength(bs) / BDRV_SECTOR_SIZE;
+    uint64_t block_sectors = LOG_BLOCK_SECTORS;
+
+    buf = qemu_mallocz(LOG_BLOCK_SECTORS * BDRV_SECTOR_SIZE);
+    assert(buf != NULL);
+
+    printf("BDRV_SECTOR_SIZE: %llu\n", BDRV_SECTOR_SIZE);
+
+    while (disk_sectors) {
+        int32_t read_sectors = MIN(block_sectors, disk_sectors);
+        
+        ret = bdrv_read(bs, current_sector, buf, read_sectors);
+        if (ret < 0) {
+            fprintf(stderr, "reading error\n");
+            goto exit;
+        }
+        
+        SHA1Init(&ctx);
+        SHA1Update(&ctx, buf, read_sectors * BDRV_SECTOR_SIZE);
+        SHA1Final(sha1.hash, &ctx);
+
+        if (qemu_write_full(fd, &sha1, sizeof(SHA1hashData))
+            != sizeof(SHA1hashData)) {
+            fprintf(stderr, "sha1map: qemu_write_full error\n");
+            goto exit;
+        }
+
+        disk_sectors -= read_sectors;
+        current_sector += read_sectors;
+        sha1_count++;
+    }
+
+    assert((sha1_count * sizeof(SHA1hashData))
+           == sha1map_size);
+
+    if (close(fd) != 0) {
+        fprintf(stderr, "close error");
+        goto exit;
+    }
+    
+    fprintf(stdout, "generate sha1mapfile %s\n", genfilename);
+
+    return 0;
+    
+exit:
+    return 1;
+}
+
 //
 // Kazushi Addition
 //
 static int img_compare(int argc, char **argv)
-{  
-
-#define  BLOCK_SIZE  (32 * 1024)
-//#define  BLOCK_SIZE  512
-    BlockDriverState *bs1, *bs2;
-    char *format = argv[1];
-    char *fname1 = argv[2];
-    char *fname2 = argv[3];
-    uint8_t *block1, *block2;
-
-    if (BLOCK_SIZE % BDRV_SECTOR_SIZE) {
-        printf("BLOCK_SIZE does not align against BDRV_SECTOR_SIZE\n");
-        return 1;
-    } 
+{
+    char *sha1map_filename1, *sha1map_filename2;
+    SHA1mapFileHdr header1, header2;
+    int fd1, fd2;
     
-    if (!fname1 || !fname2) {
-        printf("please specify 2 virtual disks");
-        return 0;
-    }
-    
-    printf("comparing %s and %s...\n", fname1, fname2);
-    
-    bs1 = bdrv_new_open(fname1, format, BDRV_O_FLAGS);
-    bs2 = bdrv_new_open(fname2, format, BDRV_O_FLAGS);
-    
-    if (!bs1 || !bs2) {
-        printf("disk open error\n");
-        return 1;
+    if (optind >= argc) {
+        help();
     }
 
-    uint64_t disk1size = bdrv_getlength(bs1) / BDRV_SECTOR_SIZE;
-    uint64_t disk2size = bdrv_getlength(bs2) / BDRV_SECTOR_SIZE;
+    sha1map_filename1 = argv[optind++];
+    sha1map_filename2 = argv[optind++];
 
-    printf("disk1: %lf [GBytes]\ndisk2: %lf [Gbytes]\n", 
-           bdrv_getlength(bs1) / 1024 / 1024 / 1024.0,
-           bdrv_getlength(bs2) / 1024 / 1024 / 1024.0);
 
-    block1 = qemu_mallocz(BLOCK_SIZE);
-    block2 = qemu_mallocz(BLOCK_SIZE);
+    /* read header 1 read */
+    fd1 = open(sha1map_filename1, O_BINARY | O_RDONLY,
+               0644);
+
+    if (fd1 < 0) {
+        fprintf(stderr, "File open error: %s\n", sha1map_filename1);
+        goto exit;
+    }
+
+    if (read(fd1, &header1, sizeof(header1)) 
+        != sizeof(header1)) {
+        goto exit;
+    }
+    /* end of reading header 1 */
     
-    int size1 = BLOCK_SIZE / BDRV_SECTOR_SIZE;        
-    int size2 = BLOCK_SIZE / BDRV_SECTOR_SIZE;
-    int read_size1, read_size2;
-    int ret1, ret2;
-    uint64_t current_sector1 = 0;
-    uint64_t current_sector2 = 0;
     
-    while (disk1size && disk2size) {
-        read_size1 = MIN(size1, disk1size);
-        ret1 = bdrv_read(bs1, current_sector1, block1, read_size1);
-        if (ret1 < 0) {
-            printf("reading error\n");
-            goto fail;
+    /* read header 2 */
+    fd2 = open(sha1map_filename2, O_BINARY | O_RDONLY,
+               0644);
+    
+    if (fd2 < 0) {
+        fprintf(stderr, "File open error: %s\n", sha1map_filename2);
+        goto exit;
+    }
+
+    if (read(fd2, &header2, sizeof(header2)) 
+        != sizeof(header2)) {
+        goto exit;
+    }
+    /* end of reading header 2 */
+
+    if (header1.orig_total_size !=
+        header1.orig_total_size) {
+        fprintf(stderr, "inconsistency total size for the VM image\n");
+        goto exit;
+    }
+
+    printf("map1:\n"           
+           " filename: %s\n"
+           " datetime: %s\n"
+           "map2:\n"
+           " filename: %s\n" 
+           " datetime: %s\n",
+           header1.image_file_name, header1.datetime,
+           header2.image_file_name, header2.datetime);
+
+    uint64_t sha1map_size_1 = header1.sha1map_size;
+    uint64_t sha1map_size_2 = header2.sha1map_size;
+    SHA1hashData hash1, hash2;
+    uint64_t equal_count = 0;
+
+    assert(header1.sha1map_size == header2.sha1map_size);
+
+    while (sha1map_size_1 && sha1map_size_2) {
+        if (read(fd1, &hash1, sizeof(hash1)) != sizeof(hash1)) {
+            fprintf(stderr, "Could not read out hash for %s\n",
+                    sha1map_filename1);
+            return 1;
         }
 
-        read_size2 = MIN(size2, disk2size);
-        ret2 = bdrv_read(bs2, current_sector2, block2, read_size2);
-        if (ret2 < 0) {                   
-            printf("reading error\n");
-            goto fail;
+        if (read(fd2, &hash2, sizeof(hash2)) != sizeof(hash2)) {
+            fprintf(stderr, "Could not read out hash for %s\n",
+                    sha1map_filename2);
+            return 1;
         }
-        
-        compsha1(block1, block2, read_size2 * BDRV_SECTOR_SIZE);
-        
-        disk1size -= read_size1;
-        disk2size -= read_size2;
-
-        current_sector1 += read_size1;
-        current_sector2 += read_size2;
+                
+        if (memcmp(&hash1, &hash2, sizeof(SHA1hashData)) != 0) {
+            ++equal_count;
+        }
+        sha1map_size_1 -= sizeof(SHA1hashData);
+        sha1map_size_2 -= sizeof(SHA1hashData);
     }
-    
-fail:
-    qemu_free(block1);
-    qemu_free(block2);
 
-    bdrv_delete(bs1);
-    bdrv_delete(bs2);
+    printf("Dirty Blocks %lld/%lld\n", 
+           equal_count, header1.sha1map_size / sizeof(SHA1hashData));
+
+    close(fd1);
+    close(fd2);
 
     return 0;
+
+exit:
+    return 1;
 }
 
 static const img_cmd_t img_cmds[] = {

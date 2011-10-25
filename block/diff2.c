@@ -218,7 +218,7 @@ static void debug_print_genmap(BlockDriverState *bs)
 
 static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
                              int nb_sectors, int dirty, int cur_gen)
-{
+{    
     BDRVDiff2State *s = bs->opaque;
     int64_t start, end;
     unsigned long val, idx, bit;

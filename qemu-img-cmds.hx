@@ -57,3 +57,15 @@ STEXI
 @item resize @var{filename} [+ | -]@var{size}
 @end table
 ETEXI
+
+DEF("gensha1map", img_gensha1map, 
+    "gensha1map [-g fmt] filename output_filename")
+STEXI
+@item gensha1map [-g @var{fmt}] @var{filename} @var{output_filename}
+ETEXI
+
+DEF("compare", img_compare, 
+    "compare sha1map1 sha1map2")
+STEXI
+@item gensha1map @var{sha1map_filename1} @var{sha1map_filename2}
+ETEXI

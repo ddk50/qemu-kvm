@@ -153,7 +153,7 @@ uint32_t j;
 
     j = context->count[0];
     if ((context->count[0] += len << 3) < j)
-	context->count[1]++;
+    context->count[1]++;
     context->count[1] += (len>>29);
     j = (j >> 3) & 63;
     if ((j + len) > 63) {
@@ -177,7 +177,7 @@ unsigned i;
 unsigned char finalcount[8];
 unsigned char c;
 
-#if 0	/* untested "improvement" by DHR */
+#if 0   /* untested "improvement" by DHR */
     /* Convert context->count to a sequence of bytes
      * in finalcount.  Second element first, but
      * big-endian order within element.
@@ -187,11 +187,11 @@ unsigned char c;
 
     for (i = 0; i < 2; i++)
     {
-	uint32_t t = context->count[i];
-	int j;
+    uint32_t t = context->count[i];
+    int j;
 
-	for (j = 0; j < 4; t >>= 8, j++)
-	    *--fcp = (unsigned char) t;
+    for (j = 0; j < 4; t >>= 8, j++)
+        *--fcp = (unsigned char) t;
     }
 #else
     for (i = 0; i < 8; i++) {
@@ -202,7 +202,7 @@ unsigned char c;
     c = 0200;
     SHA1Update(context, &c, 1);
     while ((context->count[0] & 504) != 448) {
-	c = 0000;
+    c = 0000;
         SHA1Update(context, &c, 1);
     }
     SHA1Update(context, finalcount, 8);  /* Should cause a SHA1Transform() */
@@ -221,32 +221,32 @@ int compsha1(unsigned char *buf1, unsigned char *buf2, int buf_size)
     SHA1_CTX ctx1, ctx2;
     unsigned char hash1[20], hash2[20];
     int i;
-	int ret;
+    int ret;
 
-	SHA1Init(&ctx1);
-	SHA1Update(&ctx1, buf1, buf_size);
-	SHA1Final(hash1, &ctx1);
+    SHA1Init(&ctx1);
+    SHA1Update(&ctx1, buf1, buf_size);
+    SHA1Final(hash1, &ctx1);
 
-	SHA1Init(&ctx2);
-	SHA1Update(&ctx2, buf2, buf_size);
-	SHA1Final(hash2, &ctx2);	
+    SHA1Init(&ctx2);
+    SHA1Update(&ctx2, buf2, buf_size);
+    SHA1Final(hash2, &ctx2);    
 
-	if ((ret = memcmp(hash1, hash2, 20)) == 0){ 
-//		printf("match\n");
-	} else {
-		printf("difference -- ");
-		printf("SHA1[1]=");
-		for(i=0;i<20;i++)
-			printf("%02x", hash1[i]);
+    if ((ret = memcmp(hash1, hash2, 20)) == 0){ 
+//      printf("match\n");
+    } else {
+        printf("difference -- ");
+        printf("SHA1[1]=");
+        for(i=0;i<20;i++)
+            printf("%02x", hash1[i]);
 
-		printf("  SHA1[2]=");
-		for(i=0;i<20;i++)
-			printf("%02x", hash2[i]);
-		
-		printf("\n");
-	}
+        printf("  SHA1[2]=");
+        for(i=0;i<20;i++)
+            printf("%02x", hash2[i]);
+        
+        printf("\n");
+    }
 
-	return ret;
+    return ret;
 }
 
 #define BUFSIZE 4096
