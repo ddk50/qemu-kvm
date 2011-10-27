@@ -162,9 +162,11 @@ static int diff2_open(BlockDriverState *bs, int flags)
      * offset bytes
      * 512 bytes align 
      */
-    s->diff2_sectors_offset = (((s->bitmap_size + s->genmap_size) 
-                                + sizeof(struct diff2_header))
-                               + 511) & ~511;
+    /* s->diff2_sectors_offset = (((s->bitmap_size + s->genmap_size)  */
+    /*                             + HEADER_SIZE) */
+    /*                            + 511) & ~511; */
+    s->diff2_sectors_offset = s->bitmap_size + 
+        s->genmap_size + HEADER_SIZE;
 
     DPRINTF("diff2_sectors_offset: %llu\n", s->diff2_sectors_offset);
     DPRINTF("bitmap_size: %llu \n", s->bitmap_size);
@@ -437,6 +439,7 @@ static int diff2_create(const char *filename, QEMUOptionParameter *options)
     int fd;
     int result = 0;
     int64_t total_size = 0;
+    int64_t total_sector = 0;
     int64_t real_size = 0;
     int64_t bitmap_size = 0;
     int64_t genmap_size = 0;
@@ -448,7 +451,7 @@ static int diff2_create(const char *filename, QEMUOptionParameter *options)
     /* Read out options */
     while (options && options->name) {
         if (!strcmp(options->name, BLOCK_OPT_SIZE)) {
-            total_size = options->value.n;
+            total_sector = options->value.n / 512;
         }
         options++;
     }
@@ -466,6 +469,7 @@ static int diff2_create(const char *filename, QEMUOptionParameter *options)
     header.version      = HEADER_VERSION;
     header.header_size  = HEADER_SIZE;
     header.sector       = 512;
+    total_size = total_sector * 512;
     header.total_size   = total_size; /* this is byte */
     header.cur_gen      = 0; /* first generation, this is zero */
 
@@ -486,8 +490,8 @@ static int diff2_create(const char *filename, QEMUOptionParameter *options)
     assert(genmap != NULL);
 
     /* total file size */
-    real_size = total_size + genmap_size + 
-        bitmap_size + HEADER_SIZE;
+    real_size = genmap_size + bitmap_size + 
+        HEADER_SIZE + total_size;
     
     fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY,
               0644);

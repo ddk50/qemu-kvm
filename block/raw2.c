@@ -117,7 +117,9 @@ static BlockDriverAIOCB *raw2_aio_flush(BlockDriverState *bs,
 
 static int64_t raw2_getlength(BlockDriverState *bs)
 {
-    return bdrv_getlength(bs->file);
+    /*    return bdrv_getlength(bs->file); */
+    assert(bs->total_sectors != 0);
+    return bs->total_sectors * 512;
 }
 
 static int raw2_truncate(BlockDriverState *bs, int64_t offset)
@@ -179,13 +181,16 @@ static int raw2_create(const char *filename, QEMUOptionParameter *options)
 {
     int fd;
     int64_t total_size = 0;
+    int64_t total_sectors = 0;
     int64_t real_size;
+    int32_t header_size;
+    char *buf;
     Raw2Header header;
     
     /* Read out options */
     while (options && options->name) {
         if (!strcmp(options->name, BLOCK_OPT_SIZE)) {
-            total_size = options->value.n;
+            total_sectors = options->value.n / 512;
         }
         options++;
     }    
@@ -193,6 +198,7 @@ static int raw2_create(const char *filename, QEMUOptionParameter *options)
     memset(&header, 0, sizeof(header));
     
     memcpy(header.magic, HEADER_MAGIC, sizeof(HEADER_MAGIC));
+    total_size = total_sectors * 512;
     header.total_size = total_size;
 
     fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY,
@@ -202,13 +208,22 @@ static int raw2_create(const char *filename, QEMUOptionParameter *options)
         return -errno;
     }
 
-    if (qemu_write_full(fd, &header, sizeof(header))
-        != sizeof(header)) {
-        return -errno;       
+    header_size = (sizeof(struct raw2_header) + 511) & ~511;
+    buf = qemu_malloc(header_size);   
+    assert(buf != NULL);
+
+    memset(buf, 0, sizeof(header));
+    memcpy(buf, &header, sizeof(header));
+    
+    if (qemu_write_full(fd, buf, header_size)
+        != header_size) {
+        return -errno; 
     }
 
+    qemu_free(buf);
+
     /* total file size */
-    real_size = total_size + sizeof(Raw2Header);
+    real_size = total_size + header_size;
 
     /* allocate region */
     if (ftruncate(fd, real_size) != 0) {
