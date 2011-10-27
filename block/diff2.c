@@ -54,13 +54,13 @@ typedef struct BDRVDiff2State {
     uint64_t diff2_sectors_offset;
 } BDRVDiff2State;
 
-#define FORNAME_NAME    "diff2"
+#define FORMAT_NAME    "diff2"
 #define HEADER_MAGIC    "Diff2 Virtual HD Image 2"
 #define HEADER_VERSION  0x00020003
 #define HEADER_SIZE     sizeof(Diff2Header)
 #define GENERATION_BITS 8 /* must be 1 byte */
 
-//#define DEBUG_DIFF2_FILE
+#define DEBUG_DIFF2_FILE
 
 #ifdef DEBUG_DIFF2_FILE
 #define DPRINTF(fmt, ...) \
@@ -83,12 +83,10 @@ static int diff2_probe(const uint8_t *buf, int buf_size, const char *filename)
         (strcmp(diff2->magic, HEADER_MAGIC) == 0) &&
         (diff2->version == HEADER_VERSION)) {
         DPRINTF("This is diff2 format\n");
-        return 100;    
+        return 100;
     } else {
         return 0;
-    }
-    
-    return 100;
+    }   
 }
 
 static int diff2_open(BlockDriverState *bs, int flags)
@@ -97,9 +95,12 @@ static int diff2_open(BlockDriverState *bs, int flags)
     uint32_t pos;
     BDRVDiff2State *s = bs->opaque;   
 
+    bs->sg = bs->file->sg;
+
     if (bdrv_pread(bs->file, 0, &diff2, sizeof(diff2)) 
         != sizeof(diff2)) {
         DPRINTF("Could not read out header");
+	goto fail;
     }
 
     if (strcmp(diff2.magic, HEADER_MAGIC) ||
@@ -118,7 +119,7 @@ static int diff2_open(BlockDriverState *bs, int flags)
     assert(GENERATION_BITS == 8);
     
     /* read */
-    memcpy(&s->mom_sign, &diff2.mom_sign, 37);
+    memcpy(s->mom_sign, diff2.mom_sign, 37);
     s->cur_gen     = diff2.cur_gen;
     s->sector      = diff2.sector;
     s->total_size  = diff2.total_size;
@@ -179,7 +180,7 @@ fail:
 }
 
 static int diff2_read(BlockDriverState *bs, int64_t sector_num,
-                     uint8_t *buf, int nb_sectors)
+                      uint8_t *buf, int nb_sectors)
 {
     BDRVDiff2State *s = bs->opaque;
     return bdrv_read(bs->file,
@@ -242,22 +243,12 @@ static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
         gen_ridx = total_bits / ((sizeof(unsigned long) * 8) / GENERATION_BITS);
         gen_nidx = total_bits % ((sizeof(unsigned long) * 8) / GENERATION_BITS);
         gen_val = s->genmap[gen_ridx];
-	
-        if (dirty) {
-            if (!(val & (1UL << bit))) {
-                val |= 1UL << bit;
-            }
-            mask = (1UL << (GENERATION_BITS + 1)) - 1;
-            gen_val |= (cur_gen & mask) << (gen_nidx * GENERATION_BITS);
-            s->genmap[gen_ridx] = gen_val;
-            /* DPRINTF("bitmap[%llu] -> write gen: 0x%08lx\n", */
-            /*         total_bits, */
-            /*         s->genmap[gen_ridx]); */
-        } else {
-            if (val & (1UL << bit)) {
-                val &= ~(1UL << bit);
-            }
-        }
+        
+        val |= 1UL << bit;
+        
+        mask = (1UL << (GENERATION_BITS + 1)) - 1;
+        gen_val |= (cur_gen & mask) << (gen_nidx * GENERATION_BITS);
+        s->genmap[gen_ridx] = gen_val;
         s->bitmap[idx] = val;
     }
 
@@ -343,7 +334,7 @@ static int diff2_write(BlockDriverState *bs, int64_t sector_num,
     BDRVDiff2State *s = bs->opaque;
 
     /* write bitmap */
-    set_dirty_bitmap(bs, sector_num, nb_sectors, 1, s->cur_gen);
+    /* set_dirty_bitmap(bs, sector_num, nb_sectors, 1, s->cur_gen); */
     
     return bdrv_write(bs->file, 
                       sector_num + (s->diff2_sectors_offset / 512), 
@@ -367,7 +358,7 @@ static BlockDriverAIOCB *diff2_aio_writev(BlockDriverState *bs,
     BDRVDiff2State *s = bs->opaque; 
 
     /* write bitmap */
-    set_dirty_bitmap(bs, sector_num, nb_sectors, 1, s->cur_gen);
+    /* set_dirty_bitmap(bs, sector_num, nb_sectors, 1, s->cur_gen); */
 
     return bdrv_aio_writev(bs->file,
                            sector_num + (s->diff2_sectors_offset / 512), 
@@ -577,7 +568,7 @@ static int diff2_get_info(BlockDriverState *bs, BlockDriverInfo *bdi)
     bdi->enable_diff_sending = 1;
     bdi->cur_gen = s->cur_gen;
     memcpy(bdi->mom_sign, s->mom_sign, sizeof(s->mom_sign));
-    memcpy(bdi->format_name, FORNAME_NAME, sizeof(FORNAME_NAME));
+    memcpy(bdi->format_name, FORMAT_NAME, sizeof(FORMAT_NAME));
     return 0;
 }
 
@@ -611,7 +602,7 @@ static int diff2_completed_block_migration(BlockDriverState *bs,
 }
 
 static BlockDriver bdrv_diff2 = {
-    .format_name        = FORNAME_NAME,
+    .format_name        = FORMAT_NAME,
 
     /* It's really 0, but we need to make qemu_malloc() happy */
     .instance_size      = sizeof(BDRVDiff2State),
