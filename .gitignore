@@ -1,5 +1,6 @@
 roms/seabios/config.mak
 roms/vgabios/config.mak
+pc-bios/optionrom/*
 config-devices.*
 config-all-devices.*
 config-host.*
