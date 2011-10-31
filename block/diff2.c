@@ -274,12 +274,14 @@ static int get_dirty(BDRVDiff2State *s, int64_t sector, int dst_gen)
         gen_val >>= (gen_nidx * GENERATION_BITS);
         gen_val &= mask;
 
-        if (gen_val >= dst_gen) {
-            return 0;
-        } else {
-            return !!(s->bitmap[chunk / (sizeof(unsigned long) * 8)] &
-                      (1UL << (chunk % (sizeof(unsigned long) * 8))));    
-        }
+        printf("gen_val: %ld, dst_gen: %d\n", gen_val, dst_gen);
+		
+		if (gen_val >= dst_gen) {
+			return !!(s->bitmap[chunk / (sizeof(unsigned long) * 8)] &
+					  (1UL << (chunk % (sizeof(unsigned long) * 8))));
+		} else {
+			return 0;
+		}
     } else {
         return 0;
     }
