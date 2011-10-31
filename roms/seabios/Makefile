@@ -1,1 +1,1 @@
-/home/ddk/repos/qemu-kvm-0.14.0/roms/seabios/Makefile
+/home/kazushi/repos/qemu-kvm/roms/seabios/Makefile

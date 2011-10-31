@@ -1,1 +1,1 @@
-/home/ddk/repos/qemu-kvm-0.14.0/roms/vgabios/Makefile
+/home/kazushi/repos/qemu-kvm/roms/vgabios/Makefile

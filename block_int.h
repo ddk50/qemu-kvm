@@ -29,6 +29,7 @@
 #include "qemu-queue.h"
 
 #define BLOCK_FLAG_ENCRYPT	1
+#define BLOCK_FLAG_BLANKIMG 1
 #define BLOCK_FLAG_COMPAT6	4
 
 #define BLOCK_OPT_SIZE          "size"
@@ -39,6 +40,7 @@
 #define BLOCK_OPT_CLUSTER_SIZE  "cluster_size"
 #define BLOCK_OPT_TABLE_SIZE    "table_size"
 #define BLOCK_OPT_PREALLOC      "preallocation"
+#define BLOCK_OPT_BLANKIMG      "blankdiffimage"
 
 typedef struct AIOPool {
     void (*cancel)(BlockDriverAIOCB *acb);
@@ -90,7 +92,7 @@ struct BlockDriver {
                                 int dst_gen_num);
 
     int (*bdrv_completed_block_migration)(BlockDriverState *bs,
-                                          int is_dest);
+                                          int is_dest, int src_gen);
 
     const char *protocol_name;
     int (*bdrv_truncate)(BlockDriverState *bs, int64_t offset);
@@ -207,8 +209,9 @@ struct BlockDriverState {
     int type;
     BlockErrorAction on_read_error, on_write_error;
     char device_name[32];
-    
+	
     uint32_t cur_gen;
+	uint32_t dst_gen;
     unsigned long *dirty_bitmap;
     int64_t dirty_count;
     

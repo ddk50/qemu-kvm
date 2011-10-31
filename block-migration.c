@@ -228,6 +228,7 @@ static int mig_save_device_bulk(Monitor *mon, QEMUFile *f,
     BlockDriverState *bs = bmds->bs;
     BlkMigBlock *blk;
     int nr_sectors;
+    int ret;
 
     if (bmds->shared_base) {
       while (cur_sector < total_sectors &&
@@ -255,9 +256,9 @@ static int mig_save_device_bulk(Monitor *mon, QEMUFile *f,
 
     if (bdrv_is_enabled_diff_sending(bmds->bs) 
         && block_mig_state.diff_enable) {
-        /* only diff translate */        
-        /* currently, do not recognize between 0: Acc and 1:AccDirty */
-        if (bdrv_get_block_dirty(bmds->bs, cur_sector, bmds->bs->cur_gen)) {
+        /* only diff translate */
+		if ((ret = bdrv_get_block_dirty(bmds->bs, cur_sector, bmds->bs->cur_gen))) {
+            assert(ret >= 0);
             printf("gen: %d Kaz block sending, %u\n", bmds->bs->cur_gen, BLOCK_SIZE);
             /* if dirty send it */
             blk = qemu_malloc(sizeof(BlkMigBlock));
@@ -664,7 +665,14 @@ static int start_outgoing_negos(BlockDriverState *bs)
     printf("  magic_number: %d\n", banner.magic_number);
     printf("  format_name: %s\n", banner.format_name);
     printf("  header.mom_sign: %s\n", banner.mom_sign);
-    printf("  cur_gen: %d\n", banner.cur_gen);
+    printf("  dst_gen: %d\n", banner.cur_gen);
+    
+    bs->dst_gen = banner.cur_gen;
+    
+    if (bs->dst_gen > bs->cur_gen) {
+		fprintf(stderr, "Could not translate this image\n");
+		return -1;
+    }
 
     bdrv_get_info(bs, &bdi);
 
