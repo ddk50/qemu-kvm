@@ -240,10 +240,10 @@ static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
     }
 
     /* TODO: write diff_bitmap to physical disk */
-    bdrv_pwrite(bs->file, HEADER_SIZE_ALIGN,
-                s->bitmap, s->bitmap_size);
-    bdrv_pwrite(bs->file, s->bitmap_size + HEADER_SIZE_ALIGN,
-                s->genmap, s->genmap_size);
+    /* bdrv_pwrite(bs->file, HEADER_SIZE_ALIGN, */
+    /*             s->bitmap, s->bitmap_size); */
+    /* bdrv_pwrite(bs->file, s->bitmap_size + HEADER_SIZE_ALIGN, */
+    /*             s->genmap, s->genmap_size); */
     
     /* bdrv_flush(bs); */
 }
@@ -327,6 +327,15 @@ static BlockDriverAIOCB *diff2_aio_writev(BlockDriverState *bs,
 static void diff2_close(BlockDriverState *bs)
 {
     BDRVDiff2State *s = bs->opaque;
+
+    printf("fuck you");
+
+    /* TODO: write diff_bitmap to physical disk */
+    bdrv_pwrite(bs->file, HEADER_SIZE_ALIGN,
+                s->bitmap, s->bitmap_size);
+    bdrv_pwrite(bs->file, s->bitmap_size + HEADER_SIZE_ALIGN,
+                s->genmap, s->genmap_size);
+
     qemu_free(s->genmap);
     qemu_free(s->bitmap);
 }
