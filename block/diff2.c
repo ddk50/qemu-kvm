@@ -290,8 +290,7 @@ static int get_dirty(BDRVDiff2State *s, int64_t sector, int dst_gen)
 static int diff2_write(BlockDriverState *bs, int64_t sector_num,
                        const uint8_t *buf, int nb_sectors)
 {
-    BDRVDiff2State *s = bs->opaque;
-
+    BDRVDiff2State *s = bs->opaque;    
     /* write bitmap */
     set_dirty_bitmap(bs, sector_num, nb_sectors, 1, s->cur_gen);
     
