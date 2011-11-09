@@ -2728,6 +2728,7 @@ int main(int argc, char **argv, char **envp)
             case QEMU_OPTION_incoming:
                 incoming = optarg;
                 incoming_expected = true;
+                bdrv_announce_incoming_expected();
                 break;
             case QEMU_OPTION_nodefaults:
                 default_serial = 0;

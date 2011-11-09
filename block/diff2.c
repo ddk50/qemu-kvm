@@ -52,6 +52,7 @@ typedef struct BDRVDiff2State {
     unsigned long *genmap;    
     uint32_t cur_gen;
     uint64_t diff2_sectors_offset;
+	int incoming_expected; /* Started with -incoming and waiting for incoming */
 } BDRVDiff2State;
 
 #define FORMAT_NAME          "diff2"
@@ -118,7 +119,7 @@ static int diff2_open(BlockDriverState *bs, int flags)
         goto fail;
     }
 
-    if (diff2.freezed == 1) {
+    if (diff2.freezed == 1 && !s->incoming_expected) {
         fprintf(stderr, 
                 "This image is freezed. Can not open this file currently\n");
         goto fail;
@@ -136,7 +137,11 @@ static int diff2_open(BlockDriverState *bs, int flags)
     s->bitmap_size = diff2.bitmap_size;
 	assert(s->bitmap_size % 512 == 0);
     s->genmap_size = diff2.genmap_size;
-	assert(s->genmap_size % 512 == 0);
+	assert(s->genmap_size % 512 == 0);	
+
+	if (!s->incoming_expected) {
+		s->cur_gen++;
+	}
     
     /* 
      * calculate total sectors
@@ -185,6 +190,8 @@ static int diff2_open(BlockDriverState *bs, int flags)
     DPRINTF("diff2_sectors_offset: %llu\n", s->diff2_sectors_offset);
     DPRINTF("bitmap_size: %llu \n", s->bitmap_size);
     DPRINTF("genmap_size: %llu \n", s->genmap_size);
+
+	assert(bs->cur_gen == s->cur_gen);
 
     return 0;
 
@@ -276,14 +283,13 @@ static int get_dirty(BDRVDiff2State *s, int64_t sector, int dst_gen)
 
         printf("gen_val: %ld, dst_gen: %d\n", gen_val, dst_gen);
 		
-		if (gen_val >= dst_gen) {
-			return !!(s->bitmap[chunk / (sizeof(unsigned long) * 8)] &
-					  (1UL << (chunk % (sizeof(unsigned long) * 8))));
+		if (gen_val > dst_gen) {
+			return gen_val;
 		} else {
-			return 0;
+			return -1;
 		}
     } else {
-        return 0;
+        return -1;
     }
 }
 
@@ -291,8 +297,9 @@ static int diff2_write(BlockDriverState *bs, int64_t sector_num,
                        const uint8_t *buf, int nb_sectors)
 {
     BDRVDiff2State *s = bs->opaque;    
+	/* assert(bs->cur_gen == s->cur_gen); */
     /* write bitmap */
-    set_dirty_bitmap(bs, sector_num, nb_sectors, 1, s->cur_gen);
+    set_dirty_bitmap(bs, sector_num, nb_sectors, 1, bs->cur_gen);
     
     return bdrv_write(bs->file, 
                       sector_num + (s->diff2_sectors_offset / 512), 
@@ -314,9 +321,9 @@ static BlockDriverAIOCB *diff2_aio_writev(BlockDriverState *bs,
     BlockDriverCompletionFunc *cb, void *opaque)
 {
     BDRVDiff2State *s = bs->opaque; 
-
+	/* assert(bs->cur_gen == s->cur_gen); */
     /* write bitmap */
-    set_dirty_bitmap(bs, sector_num, nb_sectors, 1, s->cur_gen);
+    set_dirty_bitmap(bs, sector_num, nb_sectors, 1, bs->cur_gen);
 
     return bdrv_aio_writev(bs->file,
                            sector_num + (s->diff2_sectors_offset / 512), 
@@ -325,10 +332,23 @@ static BlockDriverAIOCB *diff2_aio_writev(BlockDriverState *bs,
 
 static void diff2_close(BlockDriverState *bs)
 {
+    struct diff2_header diff2;
     BDRVDiff2State *s = bs->opaque;
 
-    printf("fuck you");
+    if (bdrv_pread(bs->file, 0, &diff2, sizeof(diff2)) 
+        != sizeof(diff2)) {
+        DPRINTF("Could not read out header");
+        return;
+    }
 
+	assert(s->cur_gen == bs->cur_gen);
+	diff2.cur_gen = s->cur_gen;
+
+    if (bdrv_pwrite(bs->file, 0, &diff2, sizeof(diff2))
+        != sizeof(diff2))  {
+        return;
+    }	
+	
     /* TODO: write diff_bitmap to physical disk */
     bdrv_pwrite(bs->file, HEADER_SIZE_ALIGN,
                 s->bitmap, s->bitmap_size);
@@ -589,6 +609,7 @@ static int diff2_completed_block_migration(BlockDriverState *bs,
 		assert(src_gen != 0);
         s->cur_gen = (src_gen + 1);
         diff2.cur_gen = s->cur_gen;
+		bs->cur_gen   = s->cur_gen;	
 		DPRINTF("update generation number: %d\n", s->cur_gen);
     } else {
         diff2.freezed = 0; /* temp */
@@ -598,11 +619,18 @@ static int diff2_completed_block_migration(BlockDriverState *bs,
     if (bdrv_pwrite(bs->file, 0, &diff2, sizeof(diff2))
         != sizeof(diff2))  {
         return 0;
-    }
+    }	
 
     bdrv_flush(bs);
 
     return 1;
+}
+
+static int diff2_notify_incoming_expected(BlockDriverState *bs)
+{
+	BDRVDiff2State *s = bs->opaque;
+	s->incoming_expected = 1;
+	return 1;
 }
 
 static BlockDriver bdrv_diff2 = {
@@ -639,7 +667,9 @@ static BlockDriver bdrv_diff2 = {
     .bdrv_get_block_dirty    = diff2_get_dirty,
 
     .bdrv_get_info      = diff2_get_info,    
+    
     .bdrv_completed_block_migration = diff2_completed_block_migration,
+    .bdrv_notify_incoming_expected = diff2_notify_incoming_expected,
 };
 
 static void bdrv_diff2_init(void)

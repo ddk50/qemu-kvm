@@ -26,10 +26,11 @@
 
 #define BLOCK_SIZE (BDRV_SECTORS_PER_DIRTY_CHUNK << BDRV_SECTOR_BITS)
 
-#define BLK_MIG_FLAG_DEVICE_BLOCK       0x01
-#define BLK_MIG_FLAG_EOS                0x02
-#define BLK_MIG_FLAG_PROGRESS           0x04
-#define BLK_MIG_FLAG_NEGOS              0x08
+#define BLK_MIG_FLAG_DEVICE_BLOCK           0x01
+#define BLK_MIG_FLAG_EOS                    0x02
+#define BLK_MIG_FLAG_PROGRESS               0x04
+#define BLK_MIG_FLAG_NEGOS                  0x08
+#define BLK_MIG_FLAG_DEVISE_BLOCK_WITH_GEN  0x10
 
 #define MAX_IS_ALLOCATED_SEARCH 65536
 
@@ -56,12 +57,12 @@ typedef struct BlkMigDevState {
     unsigned long *aio_bitmap;
 } BlkMigDevState;
 
-typedef struct BlkMigBlock {
+typedef struct BlkMigBlock {	
     uint8_t *buf;
     BlkMigDevState *bmds;
-    uint32_t cur_gen;
     int64_t sector;
     int nr_sectors;
+	int block_gen;
     struct iovec iov;
     QEMUIOVector qiov;
     BlockDriverAIOCB *aiocb;
@@ -108,6 +109,25 @@ static void blk_send(QEMUFile *f, BlkMigBlock * blk)
     len = strlen(blk->bmds->bs->device_name);
     qemu_put_byte(f, len);
     qemu_put_buffer(f, (uint8_t *)blk->bmds->bs->device_name, len);
+
+    qemu_put_buffer(f, blk->buf, BLOCK_SIZE);
+}
+
+static void blk_send_with_blockgen(QEMUFile *f, BlkMigBlock *blk)
+{	
+    int len;
+    
+    /* sector number and flags */
+    qemu_put_be64(f, (blk->sector << BDRV_SECTOR_BITS)
+                     | BLK_MIG_FLAG_DEVISE_BLOCK_WITH_GEN);
+
+    /* device name */
+    len = strlen(blk->bmds->bs->device_name);
+    qemu_put_byte(f, len);
+    qemu_put_buffer(f, (uint8_t *)blk->bmds->bs->device_name, len);
+
+	/* send block generation */
+	qemu_put_be32(f, blk->block_gen);
 
     qemu_put_buffer(f, blk->buf, BLOCK_SIZE);
 }
@@ -228,7 +248,7 @@ static int mig_save_device_bulk(Monitor *mon, QEMUFile *f,
     BlockDriverState *bs = bmds->bs;
     BlkMigBlock *blk;
     int nr_sectors;
-    int ret;
+    int block_gen;
 
     if (bmds->shared_base) {
       while (cur_sector < total_sectors &&
@@ -257,8 +277,7 @@ static int mig_save_device_bulk(Monitor *mon, QEMUFile *f,
     if (bdrv_is_enabled_diff_sending(bmds->bs) 
         && block_mig_state.diff_enable) {
         /* only diff translate */
-		if ((ret = bdrv_get_block_dirty(bmds->bs, cur_sector, bmds->bs->cur_gen))) {
-            assert(ret >= 0);
+		if ((block_gen = bdrv_get_block_dirty(bmds->bs, cur_sector, bmds->bs->cur_gen)) > 0) {
             printf("gen: %d Kaz block sending, %u\n", bmds->bs->cur_gen, BLOCK_SIZE);
             /* if dirty send it */
             blk = qemu_malloc(sizeof(BlkMigBlock));
@@ -266,6 +285,7 @@ static int mig_save_device_bulk(Monitor *mon, QEMUFile *f,
             blk->bmds = bmds;
             blk->sector = cur_sector;
             blk->nr_sectors = nr_sectors;
+			blk->block_gen = block_gen; /* block gen */
 
             blk->iov.iov_base = blk->buf;
             blk->iov.iov_len = nr_sectors * BDRV_SECTOR_SIZE;
@@ -492,7 +512,15 @@ static int mig_save_device_dirty(Monitor *mon, QEMUFile *f,
                               nr_sectors) < 0) {
                     goto error;
                 }
-                blk_send(f, blk);
+
+				blk->block_gen = bmds->bs->cur_gen;
+				
+				if (bdrv_is_enabled_diff_sending(bmds->bs) 
+					&& block_mig_state.diff_enable) {
+					blk_send_with_blockgen(f, blk);
+				} else {
+					blk_send(f, blk);
+				}
 
                 qemu_free(blk->buf);
                 qemu_free(blk);
@@ -547,12 +575,17 @@ static void flush_blks(QEMUFile* f)
             break;
         }
         
-        blk_send(f, blk);
+		if (bdrv_is_enabled_diff_sending(blk->bmds->bs) 
+			&& block_mig_state.diff_enable) {
+			blk_send_with_blockgen(f, blk);
+		} else {
+			blk_send(f, blk);
+		}
 
         QSIMPLEQ_REMOVE_HEAD(&block_mig_state.blk_list, entry);
         qemu_free(blk->buf);
         qemu_free(blk);
-
+		
         block_mig_state.read_done--;
         block_mig_state.transferred++;
         assert(block_mig_state.read_done >= 0);
@@ -634,7 +667,6 @@ static int start_outgoing_negos(BlockDriverState *bs)
     int fd;
     int val;
     int ret;
-    int i = 0;
 
     fd = qemu_socket(PF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
@@ -698,7 +730,6 @@ static int start_incoming_negos(BlockDriverState *bs)
     int val;
     int newfd;
     static int already_execute = 0;
-    int i = 0;
     struct DiffState header;
 
     if (already_execute)
@@ -777,7 +808,6 @@ static int block_save_live(Monitor *mon, QEMUFile *f, int stage, void *opaque)
     }
 
     if (stage == 1) {
-        int i = 0;
         init_blk_migration(mon, f);
 
         /* start track dirty blocks */
@@ -853,8 +883,9 @@ static int block_load(QEMUFile *f, void *opaque, int version_id)
     int64_t addr;
     BlockDriverState *bs, *bs_prev = NULL;
     uint8_t *buf;
+	int32_t block_gen;
     int64_t total_sectors = 0;
-    int nr_sectors;   
+    int nr_sectors; 
     
     do {
         addr = qemu_get_be64(f);
@@ -901,6 +932,51 @@ static int block_load(QEMUFile *f, void *opaque, int version_id)
             if (ret < 0) {
                 return ret;
             }
+			
+		} else if (flags & BLK_MIG_FLAG_DEVISE_BLOCK_WITH_GEN) {
+            int ret;
+            /* get device name */
+            len = qemu_get_byte(f);
+            qemu_get_buffer(f, (uint8_t *)device_name, len);
+            device_name[len] = '\0';
+
+            bs = bdrv_find(device_name);
+            if (!bs) {
+                fprintf(stderr, "Error unknown block device %s\n",
+                        device_name);
+                return -EINVAL;
+            }
+
+            if (bs != bs_prev) {
+                bs_prev = bs;
+                total_sectors = bdrv_getlength(bs) >> BDRV_SECTOR_BITS;
+                if (total_sectors <= 0) {
+                    error_report("Error getting length of block device %s\n",
+                                 device_name);
+                    return -EINVAL;
+                }
+            }
+
+            if (total_sectors - addr < BDRV_SECTORS_PER_DIRTY_CHUNK) {
+                nr_sectors = total_sectors - addr;
+            } else {
+                nr_sectors = BDRV_SECTORS_PER_DIRTY_CHUNK;
+            }
+
+			/* data */
+			block_gen = qemu_get_be32(f);
+			bs->cur_gen = block_gen;
+
+            buf = qemu_malloc(BLOCK_SIZE);
+
+            qemu_get_buffer(f, buf, BLOCK_SIZE);            
+            ret = bdrv_write(bs, addr, buf, nr_sectors);
+            
+            qemu_free(buf);
+            if (ret < 0) {
+                return ret;
+			}
+
         } else if (flags & BLK_MIG_FLAG_PROGRESS) {
             if (!banner_printed) {
                 printf("Receiving block device images\n");
