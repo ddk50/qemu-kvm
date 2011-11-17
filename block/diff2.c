@@ -119,7 +119,7 @@ static int diff2_open(BlockDriverState *bs, int flags)
         goto fail;
     }
 
-    if (diff2.freezed == 1 && !s->incoming_expected) {
+    if (diff2.freezed && !s->incoming_expected) {
         fprintf(stderr, 
                 "This image is freezed. Can not open this file currently\n");
         goto fail;
