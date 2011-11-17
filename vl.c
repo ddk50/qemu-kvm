@@ -2728,7 +2728,6 @@ int main(int argc, char **argv, char **envp)
             case QEMU_OPTION_incoming:
                 incoming = optarg;
                 incoming_expected = true;
-                bdrv_announce_incoming_expected();
                 break;
             case QEMU_OPTION_nodefaults:
                 default_serial = 0;
@@ -2986,6 +2985,8 @@ int main(int argc, char **argv, char **envp)
     if (qemu_opts_foreach(qemu_find_opts("drive"), drive_init_func, &machine->use_scsi, 1) != 0)
         exit(1);
 
+	bdrv_announce_incoming_expected(incoming_expected);
+	
     default_drive(default_cdrom, snapshot, machine->use_scsi,
                   IF_DEFAULT, 2, CDROM_OPTS);
     default_drive(default_floppy, snapshot, machine->use_scsi,

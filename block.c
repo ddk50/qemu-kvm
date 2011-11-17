@@ -2972,30 +2972,30 @@ static int bdrv_completed_block_migration(BlockDriverState *bs,
     return drv->bdrv_completed_block_migration(bs, is_dest, src_gen);
 }
 
-static int bdrv_notify_incoming_expected(BlockDriverState *bs)
+static int bdrv_notify_incoming_expected(BlockDriverState *bs, int incoming_expected)
 {    
     BlockDriver *drv = bs->drv;
     if (!drv)
         return -ENOMEDIUM;
 
-    return drv->bdrv_notify_incoming_expected(bs);
+    return drv->bdrv_notify_incoming_expected(bs, incoming_expected);
 }
 
 
 void bdrv_announce_completed_block_migration(int is_dest)
 {
-    BlockDriverState *bs;
+    BlockDriverState *bs;	
 	
     QTAILQ_FOREACH(bs, &bdrv_states, list) {
-		bdrv_completed_block_migration(bs, is_dest, bs->cur_gen);
+		bdrv_completed_block_migration(bs, is_dest, bs->src_gen);
     }
 }
 
-void bdrv_announce_incoming_expected(void)
+void bdrv_announce_incoming_expected(int incoming_expected)
 {
 	BlockDriverState *bs;
 	
     QTAILQ_FOREACH(bs, &bdrv_states, list) {
-		bdrv_notify_incoming_expected(bs);
+		bdrv_notify_incoming_expected(bs, incoming_expected);
 	}
 }

@@ -52,7 +52,7 @@ typedef struct BDRVDiff2State {
     unsigned long *genmap;    
     uint32_t cur_gen;
     uint64_t diff2_sectors_offset;
-	int incoming_expected; /* Started with -incoming and waiting for incoming */
+    int incoming_expected; /* Started with -incoming and waiting for incoming */
 } BDRVDiff2State;
 
 #define FORMAT_NAME          "diff2"
@@ -107,10 +107,13 @@ static int diff2_open(BlockDriverState *bs, int flags)
 
     bs->sg = bs->file->sg;
 
+	/* init */
+	bs->cur_gen = bs->dst_gen = bs->src_gen = 0;
+
     if (bdrv_pread(bs->file, 0, &diff2, sizeof(diff2))
         != sizeof(diff2)) {
         DPRINTF("Could not read out header");
-		goto fail;
+        goto fail;
     }
 
     if (strcmp(diff2.magic, HEADER_MAGIC) ||
@@ -133,32 +136,26 @@ static int diff2_open(BlockDriverState *bs, int flags)
     s->cur_gen     = diff2.cur_gen;
     s->sector      = diff2.sector;
     s->total_size  = diff2.total_size;
-	assert(s->total_size % 512 == 0);
+    assert(s->total_size % 512 == 0);
     s->bitmap_size = diff2.bitmap_size;
-	assert(s->bitmap_size % 512 == 0);
+    assert(s->bitmap_size % 512 == 0);
     s->genmap_size = diff2.genmap_size;
-	assert(s->genmap_size % 512 == 0);	
-
-	if (!s->incoming_expected) {
-		s->cur_gen++;
-	}
+    assert(s->genmap_size % 512 == 0);  
     
     /* 
      * calculate total sectors
      */
     bs->total_sectors = s->total_size / 512;
-	bs->cur_gen       = s->cur_gen;
-    DPRINTF("bs->cur_gen: %d\n", s->cur_gen);
+    bs->cur_gen       = s->cur_gen;
 
     s->genmap = qemu_mallocz(s->genmap_size);
     assert(s->genmap != NULL);
 
     s->bitmap = qemu_mallocz(s->bitmap_size);
     assert(s->bitmap != NULL);
-
     
     pos = diff2.header_size;
-	assert(pos % 512 == 0);
+    assert(pos % 512 == 0);
     
     /*
      * read out bitmap
@@ -185,13 +182,13 @@ static int diff2_open(BlockDriverState *bs, int flags)
     s->diff2_sectors_offset = s->bitmap_size + 
         s->genmap_size + HEADER_SIZE_ALIGN;
 
-	assert(s->diff2_sectors_offset % 512 == 0);
-	
+    assert(s->diff2_sectors_offset % 512 == 0);
+    
     DPRINTF("diff2_sectors_offset: %llu\n", s->diff2_sectors_offset);
     DPRINTF("bitmap_size: %llu \n", s->bitmap_size);
     DPRINTF("genmap_size: %llu \n", s->genmap_size);
 
-	assert(bs->cur_gen == s->cur_gen);
+    assert(bs->cur_gen == s->cur_gen);
 
     return 0;
 
@@ -259,17 +256,17 @@ static int get_dirty(BDRVDiff2State *s, int64_t sector, int dst_gen)
 {    
     int64_t chunk = sector / (int64_t)BDRV_SECTORS_PER_DIRTY_CHUNK;
     unsigned long gen_val, gen_ridx, gen_nidx;
-	unsigned long idx, bit;
+    unsigned long idx, bit;
     unsigned long mask;
     uint64_t total_bits;   
 
     assert(s->total_size != 0);
     assert(s->bitmap != NULL);
     
-	idx = (chunk / (sizeof(unsigned long) * 8));
-	bit = (chunk % (sizeof(unsigned long) * 8));
+    idx = (chunk / (sizeof(unsigned long) * 8));
+    bit = (chunk % (sizeof(unsigned long) * 8));
 
-	total_bits = (idx * sizeof(unsigned long) * 8) + bit;
+    total_bits = (idx * sizeof(unsigned long) * 8) + bit;
 
     if (s->bitmap && (sector << BDRV_SECTOR_BITS) < s->total_size) {
 
@@ -280,14 +277,12 @@ static int get_dirty(BDRVDiff2State *s, int64_t sector, int dst_gen)
         mask = (1 << GENERATION_BITS) - 1;
         gen_val >>= (gen_nidx * GENERATION_BITS);
         gen_val &= mask;
-
-        printf("gen_val: %ld, dst_gen: %d\n", gen_val, dst_gen);
-		
-		if (gen_val > dst_gen) {
-			return gen_val;
-		} else {
-			return -1;
-		}
+        
+        if (gen_val > dst_gen) {
+            return gen_val;
+        } else {
+            return -1;
+        }
     } else {
         return -1;
     }
@@ -297,7 +292,7 @@ static int diff2_write(BlockDriverState *bs, int64_t sector_num,
                        const uint8_t *buf, int nb_sectors)
 {
     BDRVDiff2State *s = bs->opaque;    
-	/* assert(bs->cur_gen == s->cur_gen); */
+    /* assert(bs->cur_gen == s->cur_gen); */
     /* write bitmap */
     set_dirty_bitmap(bs, sector_num, nb_sectors, 1, bs->cur_gen);
     
@@ -321,7 +316,7 @@ static BlockDriverAIOCB *diff2_aio_writev(BlockDriverState *bs,
     BlockDriverCompletionFunc *cb, void *opaque)
 {
     BDRVDiff2State *s = bs->opaque; 
-	/* assert(bs->cur_gen == s->cur_gen); */
+    /* assert(bs->cur_gen == s->cur_gen); */
     /* write bitmap */
     set_dirty_bitmap(bs, sector_num, nb_sectors, 1, bs->cur_gen);
 
@@ -341,14 +336,14 @@ static void diff2_close(BlockDriverState *bs)
         return;
     }
 
-	assert(s->cur_gen == bs->cur_gen);
-	diff2.cur_gen = s->cur_gen;
+    assert(s->cur_gen == bs->cur_gen);
+    diff2.cur_gen = s->cur_gen;
 
     if (bdrv_pwrite(bs->file, 0, &diff2, sizeof(diff2))
         != sizeof(diff2))  {
         return;
-    }	
-	
+    }   
+    
     /* TODO: write diff_bitmap to physical disk */
     bdrv_pwrite(bs->file, HEADER_SIZE_ALIGN,
                 s->bitmap, s->bitmap_size);
@@ -427,11 +422,11 @@ static int diff2_create(const char *filename, QEMUOptionParameter *options)
     int result = 0;
     int64_t total_size = 0;
     int64_t total_sector = 0;
-    int blank_flag = 0;	
+    int blank_flag = 0; 
     int64_t real_size = 0;
     int64_t bitmap_size = 0;
     int64_t genmap_size = 0;
-	char *header_buf = 0;
+    char *header_buf = 0;
     unsigned long *bitmap = NULL;
     unsigned long *genmap = NULL;
     Diff2Header header;
@@ -458,8 +453,8 @@ static int diff2_create(const char *filename, QEMUOptionParameter *options)
         assert(strcmp(header.mom_sign, NULL_MOM_SIGN) != 0);
     } else {
         strcpy(header.mom_sign, NULL_MOM_SIGN);
-		DPRINTF("Since mon_sign is all zero, it's a black image");
-		assert(strcmp(header.mom_sign, NULL_MOM_SIGN) == 0);
+        DPRINTF("Since mon_sign is all zero, it's a black image");
+        assert(strcmp(header.mom_sign, NULL_MOM_SIGN) == 0);
     }
     
     header.version      = HEADER_VERSION;
@@ -468,24 +463,24 @@ static int diff2_create(const char *filename, QEMUOptionParameter *options)
     total_size = total_sector * 512;
     header.total_size   = total_size; /* this is byte */
     header.cur_gen      = 1; /* first generation, this is one */
-	header.freezed      = blank_flag;
+    header.freezed      = blank_flag;
 
-	
+    
     bitmap_size = (total_size >> BDRV_SECTOR_BITS) +
         BDRV_SECTORS_PER_DIRTY_CHUNK * 8 - 1;
     bitmap_size /= BDRV_SECTORS_PER_DIRTY_CHUNK * 8;
-	bitmap_size = (bitmap_size + 511) & ~511; /* 512 align */
-	assert(bitmap_size % 512 == 0);    
+    bitmap_size = (bitmap_size + 511) & ~511; /* 512 align */
+    assert(bitmap_size % 512 == 0);    
     header.bitmap_size  = bitmap_size;
     DPRINTF("bitmap_size: %lf [KBytes]\n", header.bitmap_size / 1024.0);
-	
+    
     
     genmap_size = (bitmap_size * 8 * GENERATION_BITS) / 8;
-	genmap_size = (genmap_size + 511) & ~511; /* 512 align */
+    genmap_size = (genmap_size + 511) & ~511; /* 512 align */
     header.genmap_size  = genmap_size;
-	assert(genmap_size % 512 == 0);	
+    assert(genmap_size % 512 == 0); 
     DPRINTF("genmap_size: %lf [KBytes]\n", header.genmap_size / 1024.0);
-	
+    
     
     bitmap = qemu_mallocz(bitmap_size);
     assert(bitmap != NULL);
@@ -496,7 +491,7 @@ static int diff2_create(const char *filename, QEMUOptionParameter *options)
     real_size = genmap_size + bitmap_size + 
         HEADER_SIZE_ALIGN + total_size;
 
-	assert(real_size % 512 == 0);
+    assert(real_size % 512 == 0);
     
     fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY,
               0644);
@@ -506,11 +501,11 @@ static int diff2_create(const char *filename, QEMUOptionParameter *options)
     } else {
         
         /* first, write header */
-		header_buf = malloc(HEADER_SIZE_ALIGN);
-		assert(HEADER_SIZE_ALIGN % 512 == 0);
-		assert(header_buf != NULL);
-		memset(header_buf, 0, HEADER_SIZE_ALIGN);
-		memcpy(header_buf, &header, sizeof(header));
+        header_buf = malloc(HEADER_SIZE_ALIGN);
+        assert(HEADER_SIZE_ALIGN % 512 == 0);
+        assert(header_buf != NULL);
+        memset(header_buf, 0, HEADER_SIZE_ALIGN);
+        memcpy(header_buf, &header, sizeof(header));
 
         if (qemu_write_full(fd, header_buf, HEADER_SIZE_ALIGN)
             != HEADER_SIZE_ALIGN) {
@@ -546,7 +541,7 @@ static int diff2_create(const char *filename, QEMUOptionParameter *options)
 exit:
     qemu_free(bitmap);
     qemu_free(genmap);
-	qemu_free(header_buf);
+    qemu_free(header_buf);
     return result;
 }
 
@@ -606,31 +601,40 @@ static int diff2_completed_block_migration(BlockDriverState *bs,
     }
 
     if (is_dest) {
-		assert(src_gen != 0);
+        assert(src_gen != 0);
         s->cur_gen = (src_gen + 1);
         diff2.cur_gen = s->cur_gen;
-		bs->cur_gen   = s->cur_gen;	
-		DPRINTF("update generation number: %d\n", s->cur_gen);
+        bs->cur_gen   = s->cur_gen; 
+        DPRINTF("update generation number: %d\n", s->cur_gen);
     } else {
         diff2.freezed = 0; /* temp */
-		DPRINTF("freezed this image\n");
+        DPRINTF("freezed this image\n");
     }
 
     if (bdrv_pwrite(bs->file, 0, &diff2, sizeof(diff2))
         != sizeof(diff2))  {
         return 0;
-    }	
+    }   
 
     bdrv_flush(bs);
 
     return 1;
 }
 
-static int diff2_notify_incoming_expected(BlockDriverState *bs)
+static int diff2_notify_incoming_expected(BlockDriverState *bs, int incoming_expected)
 {
-	BDRVDiff2State *s = bs->opaque;
-	s->incoming_expected = 1;
-	return 1;
+    BDRVDiff2State *s = bs->opaque;
+    s->incoming_expected = incoming_expected;
+
+	if (!incoming_expected) {		
+		s->cur_gen++;
+		bs->cur_gen = s->cur_gen;
+		DPRINTF("cur_gen: %d\n", bs->cur_gen);
+	} else {
+		DPRINTF("cur_gen: %d\n", bs->cur_gen);
+	}
+	
+    return 1;
 }
 
 static BlockDriver bdrv_diff2 = {

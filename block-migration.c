@@ -277,8 +277,7 @@ static int mig_save_device_bulk(Monitor *mon, QEMUFile *f,
     if (bdrv_is_enabled_diff_sending(bmds->bs) 
         && block_mig_state.diff_enable) {
         /* only diff translate */
-		if ((block_gen = bdrv_get_block_dirty(bmds->bs, cur_sector, bmds->bs->cur_gen)) > 0) {
-            printf("gen: %d Kaz block sending, %u\n", bmds->bs->cur_gen, BLOCK_SIZE);
+		if ((block_gen = bdrv_get_block_dirty(bmds->bs, cur_sector, bmds->bs->dst_gen)) > 0) {
             /* if dirty send it */
             blk = qemu_malloc(sizeof(BlkMigBlock));
             blk->buf = qemu_malloc(BLOCK_SIZE);
@@ -390,6 +389,9 @@ static void init_blk_migration_it(void *opaque, BlockDriverState *bs)
             qemu_put_byte(block_mig_state.f, len);
             qemu_put_buffer(block_mig_state.f, 
                             (uint8_t *)bmds->bs->device_name, len);
+
+			/* sending current generation number */
+			qemu_put_be64(block_mig_state.f, bmds->bs->cur_gen);
 
             qemu_fflush(block_mig_state.f);
             
@@ -701,7 +703,7 @@ static int start_outgoing_negos(BlockDriverState *bs)
     
     bs->dst_gen = banner.cur_gen;
     
-    if (bs->dst_gen > bs->cur_gen) {
+    if (bs->dst_gen >= bs->cur_gen) {
 		fprintf(stderr, "Could not translate this image\n");
 		return -1;
     }
@@ -989,8 +991,8 @@ static int block_load(QEMUFile *f, void *opaque, int version_id)
                 printf("block migration is completed, %lf\n", stop_blockmigration_global_timer());
 
             fflush(stdout);
-        } else if (flags & BLK_MIG_FLAG_NEGOS) {
-            
+        } else if (flags & BLK_MIG_FLAG_NEGOS) {            
+			uint64_t src_gen;
             len = qemu_get_byte(f);
             qemu_get_buffer(f, (uint8_t *)device_name, len);
             device_name[len] = '\0';
@@ -1001,12 +1003,15 @@ static int block_load(QEMUFile *f, void *opaque, int version_id)
                         device_name);
                 return -EINVAL;
             }
+
+			src_gen = qemu_get_be64(f);
+			bs->src_gen = (uint32_t)src_gen;
+			printf("source host generation is %llu\n", src_gen);
             
             if (start_incoming_negos(bs) < 0) {
                 fprintf(stderr, "Could not start incoming server\n");
                 return -EINVAL;
-            }
-            
+            }			
         } else if (!(flags & BLK_MIG_FLAG_EOS)) {
             fprintf(stderr, "Unknown flags\n");
             return -EINVAL;

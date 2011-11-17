@@ -91,8 +91,8 @@ struct BlockDriver {
 
     int (*bdrv_completed_block_migration)(BlockDriverState *bs,
                                           int is_dest, int src_gen);
-
-	int (*bdrv_notify_incoming_expected)(BlockDriverState *bs);
+	
+    int (*bdrv_notify_incoming_expected)(BlockDriverState *bs, int incoming_expected);
 
     const char *protocol_name;
     int (*bdrv_truncate)(BlockDriverState *bs, int64_t offset);
@@ -212,6 +212,7 @@ struct BlockDriverState {
 	
     uint32_t cur_gen;
 	uint32_t dst_gen;
+	uint32_t src_gen;
     unsigned long *dirty_bitmap;
     int64_t dirty_count;
     

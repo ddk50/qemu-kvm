@@ -257,7 +257,7 @@ int bdrv_get_block_dirty(BlockDriverState *bs, uint64_t cur_sector,
 int bdrv_get_block_dirtymap(BlockDriverState *bs, uint8_t *buf, 
                             int dst_gen_num);
 void bdrv_announce_completed_block_migration(int is_dest);
-void bdrv_announce_incoming_expected(void);
+void bdrv_announce_incoming_expected(int incoming_expected);
 
 typedef enum {
     BLKDBG_L1_UPDATE,
